@@ -1,12 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, Check, Edit3, Eye, MessageSquare, Plus, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  CloudUpload,
+  Edit3,
+  Eye,
+  MessageSquare,
+  Plus,
+  Search,
+  Send,
+  Trash2,
+  Upload,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useStore } from '../../store/StoreContext';
 import { formatMoney, formatMoneyCompact } from '../../lib/format';
 import { DigitalProduct, OrderRecord, StockItem, SupportTicket, TicketMessage, UserAccount } from '../../types';
+import { LiveAmbientBackdrop } from '../store/LiveAmbientBackdrop';
 
 export const AdminDashboardView: React.FC = () => {
-  const { adminData, approveDeposit, rejectDeposit, navigateAdmin } = useStore();
+  const { adminData, approveDeposit, rejectDeposit, navigateAdmin, saveStoreSettings } = useStore();
+  const [togglingMaint, setTogglingMaint] = useState(false);
+
   if (!adminData) return null;
 
   const totalBal = adminData.users.reduce((a, u) => a + (u.balance || 0), 0);
@@ -19,52 +36,94 @@ export const AdminDashboardView: React.FC = () => {
   const openTickets = adminData.tickets.filter((t) => t.status === 'open');
   const activeStock = adminData.stock.filter((s) => s.available).length;
   const waitingOrders = adminData.orders.filter((o) => o.status === 'WAIT_CODE').length;
+  const isMaintenance = Boolean(adminData.settings.maintenanceMode);
+  const gh = adminData.githubBackup;
+
+  const handleQuickToggleMaintenance = async () => {
+    setTogglingMaint(true);
+    try {
+      await saveStoreSettings({ maintenanceMode: !isMaintenance });
+    } finally {
+      setTogglingMaint(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">Command Center</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Live store performance, pending approvals, and operations</p>
+      {/* Executive Command Banner */}
+      <section className="relative overflow-hidden rounded-3xl bg-[#04120e] text-white p-6 sm:p-7 shadow-[0_24px_48px_-24px_rgba(4,18,14,0.7)] border border-emerald-500/20">
+        <LiveAmbientBackdrop variant="hero" />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-1.5">
+            <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              AadityaTg.Store Command Center
+            </h1>
+            <p className="text-sm text-emerald-100/75 max-w-xl">
+              Live revenue telemetry, instant deposit approvals, 2-hour GitHub backup status, and maintenance control.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              disabled={togglingMaint}
+              onClick={() => void handleQuickToggleMaintenance()}
+              className={`min-h-[42px] px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-2 border transition-all cursor-pointer ${
+                isMaintenance
+                  ? 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-100 border-amber-300/40'
+                  : 'bg-white/10 hover:bg-white/16 text-white border-white/15 backdrop-blur-md'
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              {togglingMaint
+                ? 'Updating…'
+                : isMaintenance
+                  ? 'Maintenance: ON (Turn Off)'
+                  : 'Maintenance: OFF'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateAdmin('settings')}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-white/10 hover:bg-white/16 border border-white/15 backdrop-blur-md text-xs font-semibold text-emerald-100 inline-flex items-center gap-2 transition-colors"
+            >
+              <CloudUpload className="w-4 h-4 text-emerald-300" />
+              {gh?.enabled
+                ? `GitHub Auto-Backup: ${gh.intervalMinutes}m`
+                : 'GitHub Backup: Off'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigateAdmin('serverapis')}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors shadow-sm"
+            >
+              Configure APIs
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => navigateAdmin('orders')}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700"
-          >
-            Manage Orders ({adminData.orders.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateAdmin('serverapis')}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white"
-          >
-            Configure APIs
-          </button>
-        </div>
-      </div>
+      </section>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="admin-card rounded-2xl p-5">
           <div className="text-xs font-medium text-slate-500">Total Revenue</div>
           <div className="font-display text-2xl font-bold text-slate-900 mt-1 tabular-nums">
             {formatMoneyCompact(totalSales)}
           </div>
-          <div className="text-xs text-slate-400 mt-1 tabular-nums">
+          <div className="text-xs text-emerald-700 font-medium mt-1 tabular-nums">
             Today: {formatMoneyCompact(todaySales)}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="admin-card rounded-2xl p-5">
           <div className="text-xs font-medium text-slate-500">Registered Users</div>
           <div className="font-display text-2xl font-bold text-slate-900 mt-1 tabular-nums">
             {adminData.users.length}
           </div>
-          <div className="text-xs text-emerald-700 mt-1 tabular-nums">
+          <div className="text-xs text-emerald-700 font-medium mt-1 tabular-nums">
             Wallet Sum: {formatMoneyCompact(totalBal)}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="admin-card rounded-2xl p-5">
           <div className="text-xs font-medium text-slate-500">Orders &amp; Inventory</div>
           <div className="font-display text-2xl font-bold text-slate-900 mt-1 tabular-nums">
             {adminData.orders.length}
@@ -76,42 +135,42 @@ export const AdminDashboardView: React.FC = () => {
         <button
           type="button"
           onClick={() => navigateAdmin('deposits')}
-          className="bg-white rounded-2xl border border-slate-200 hover:border-amber-300 p-5 text-left transition-colors"
+          className="admin-card admin-card-interactive rounded-2xl p-5 text-left cursor-pointer"
         >
           <div className="text-xs font-medium text-slate-500">Pending Deposits</div>
           <div className="font-display text-2xl font-bold text-amber-600 mt-1 tabular-nums">
             {pendingDeposits.length}
           </div>
-          <div className="text-xs text-slate-400 mt-1">Click to review UTRs</div>
+          <div className="text-xs text-slate-500 mt-1">Click to review UTRs</div>
         </button>
         <button
           type="button"
           onClick={() => navigateAdmin('tickets')}
-          className="bg-white rounded-2xl border border-slate-200 hover:border-emerald-300 p-5 text-left transition-colors"
+          className="admin-card admin-card-interactive rounded-2xl p-5 text-left cursor-pointer"
         >
           <div className="text-xs font-medium text-slate-500">Open Support Tickets</div>
           <div className="font-display text-2xl font-bold text-emerald-700 mt-1 tabular-nums">
             {openTickets.length}
           </div>
-          <div className="text-xs text-slate-400 mt-1">Click to reply to users</div>
+          <div className="text-xs text-slate-500 mt-1">Click to reply to users</div>
         </button>
         <button
           type="button"
           onClick={() => navigateAdmin('digital')}
-          className="bg-white rounded-2xl border border-slate-200 hover:border-slate-300 p-5 text-left transition-colors"
+          className="admin-card admin-card-interactive rounded-2xl p-5 text-left cursor-pointer"
         >
           <div className="text-xs font-medium text-slate-500">Catalog Items</div>
           <div className="font-display text-2xl font-bold text-slate-900 mt-1 tabular-nums">
             {adminData.digital.length + adminData.smm.services.length}
           </div>
-          <div className="text-xs text-slate-400 mt-1">
+          <div className="text-xs text-slate-500 mt-1">
             {adminData.digital.length} digital · {adminData.smm.services.length} SMM
           </div>
         </button>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="admin-card rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-display font-bold text-base text-slate-900">Recent Orders</h2>
             <button
@@ -127,7 +186,7 @@ export const AdminDashboardView: React.FC = () => {
               <div className="px-5 py-10 text-center text-sm text-slate-400">No orders placed yet</div>
             ) : (
               adminData.orders.slice(0, 6).map((o) => (
-                <div key={o.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm">
+                <div key={o.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm hover:bg-slate-50/70 transition-colors">
                   <div className="min-w-0">
                     <div className="font-medium text-slate-900 truncate">
                       {o.kind} · {o.country || o.name || 'Order'}
@@ -148,7 +207,7 @@ export const AdminDashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="admin-card rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-display font-bold text-base text-slate-900">Pending Deposits</h2>
             <button
@@ -164,7 +223,7 @@ export const AdminDashboardView: React.FC = () => {
               <div className="px-5 py-10 text-center text-sm text-slate-400">No pending deposits</div>
             ) : (
               pendingDeposits.slice(0, 6).map((d) => (
-                <div key={d.id} className="px-5 py-3.5 flex items-center justify-between gap-4 text-sm">
+                <div key={d.id} className="px-5 py-3.5 flex items-center justify-between gap-4 text-sm hover:bg-slate-50/70 transition-colors">
                   <div className="min-w-0">
                     <div className="font-medium text-slate-900 tabular-nums">
                       User {d.userId} · {formatMoneyCompact(d.amount)}
@@ -199,7 +258,7 @@ export const AdminDashboardView: React.FC = () => {
       </div>
 
       {openTickets.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="admin-card rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-display font-bold text-base text-slate-900">Recent Open Tickets</h2>
             <button
@@ -212,7 +271,7 @@ export const AdminDashboardView: React.FC = () => {
           </div>
           <div className="divide-y divide-slate-100">
             {openTickets.slice(0, 4).map((t) => (
-              <div key={t.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm">
+              <div key={t.id} className="px-5 py-3 flex items-center justify-between gap-4 text-sm hover:bg-slate-50/70 transition-colors">
                 <div className="min-w-0">
                   <div className="font-medium text-slate-900 truncate">
                     #{t.id} · {t.subject}

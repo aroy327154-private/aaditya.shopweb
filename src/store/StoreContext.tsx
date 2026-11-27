@@ -8,6 +8,7 @@ import {
   CountryOption,
   OrderRecord,
   PaymentSettings,
+  PublicMaintenanceStatus,
   PublicStoreState,
   ServerFilterState,
   SmmService,
@@ -47,6 +48,8 @@ interface StoreContextValue {
 
   booting: boolean;
   adminSetupRequired: boolean;
+  maintenance: PublicMaintenanceStatus;
+  refreshMaintenance: () => Promise<void>;
 
   userState: PublicStoreState | null;
   currentUser: UserAccount | null;
@@ -215,6 +218,16 @@ interface StoreContextValue {
   updateSmmService: (id: number, patch: Partial<SmmService>) => Promise<void>;
   removeSmmService: (id: number) => Promise<void>;
   saveStoreSettings: (patch: Partial<StoreSettings>) => Promise<void>;
+  saveGithubBackupSettings: (patch: {
+    enabled?: boolean;
+    repo?: string;
+    branch?: string;
+    filePath?: string;
+    intervalMinutes?: number;
+    token?: string;
+    clearToken?: boolean;
+  }) => Promise<boolean>;
+  runGithubBackupNow: () => Promise<boolean>;
   downloadFullBackup: () => Promise<boolean>;
   restoreFullBackup: (backupPayload: unknown) => Promise<boolean>;
 }
@@ -265,6 +278,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [booting, setBooting] = useState(true);
   const [adminSetupRequired, setAdminSetupRequired] = useState(false);
+  const [maintenance, setMaintenance] = useState<PublicMaintenanceStatus>({
+    enabled: false,
+    title: 'Store Under Maintenance',
+    message:
+      'AadityaTg.Store is currently upgrading servers and live inventory. We will be back online shortly.',
+    eta: '',
+    support: '',
+    supportCh: '',
+  });
 
   // Tokens held strictly in React state memory (never localStorage)
   const [userToken, setUserToken] = useState<string | null>(null);
@@ -405,13 +427,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setConfirmState(null);
   }, []);
 
+  const refreshMaintenance = useCallback(async () => {
+    const res = await apiRequest<{ maintenance?: PublicMaintenanceStatus }>('/api/public/maintenance');
+    if (res.ok && res.data.maintenance) {
+      setMaintenance(res.data.maintenance);
+    }
+  }, []);
+
   // Bootstrap initial configuration check
   useEffect(() => {
     let active = true;
     (async () => {
-      const res = await apiRequest<{ adminSetupRequired: boolean }>('/api/bootstrap');
+      const res = await apiRequest<{
+        adminSetupRequired: boolean;
+        maintenance?: PublicMaintenanceStatus;
+      }>('/api/bootstrap');
       if (active && res.ok) {
         setAdminSetupRequired(Boolean(res.data.adminSetupRequired));
+        if (res.data.maintenance) {
+          setMaintenance(res.data.maintenance);
+        }
       }
       if (active) setBooting(false);
     })();
@@ -1823,10 +1858,79 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const saveStoreSettings = useCallback(
     async (patch: Partial<StoreSettings>) => {
-      await adminMutate('/api/admin/settings', 'PUT', patch, 'Store settings saved');
+      if (!adminToken) return;
+      const res = await apiRequest<{
+        data: AdminStoreData;
+        maintenance?: PublicMaintenanceStatus;
+      }>(
+        '/api/admin/settings',
+        { method: 'PUT', body: JSON.stringify(patch) },
+        adminToken,
+      );
+      if (!res.ok) {
+        showToast(res.data.error || 'Failed to save settings', 'err');
+        return;
+      }
+      setAdminData(res.data.data);
+      if (res.data.maintenance) {
+        setMaintenance(res.data.maintenance);
+      }
+      if (userToken) {
+        await refreshUserState();
+      }
+      showToast('Store settings saved');
     },
-    [adminMutate],
+    [adminToken, userToken, refreshUserState, showToast],
   );
+
+  const saveGithubBackupSettings = useCallback(
+    async (patch: {
+      enabled?: boolean;
+      repo?: string;
+      branch?: string;
+      filePath?: string;
+      intervalMinutes?: number;
+      token?: string;
+      clearToken?: boolean;
+    }): Promise<boolean> => {
+      if (!adminToken) return false;
+      const res = await apiRequest<{ data: AdminStoreData }>(
+        '/api/admin/github-backup',
+        { method: 'PUT', body: JSON.stringify(patch) },
+        adminToken,
+      );
+      if (!res.ok) {
+        showToast(res.data.error || 'Failed to save GitHub backup settings', 'err');
+        return false;
+      }
+      setAdminData(res.data.data);
+      showToast('GitHub auto-backup settings saved');
+      return true;
+    },
+    [adminToken, showToast],
+  );
+
+  const runGithubBackupNow = useCallback(async (): Promise<boolean> => {
+    if (!adminToken) return false;
+    const res = await apiRequest<{
+      ok: boolean;
+      message?: string;
+      data?: AdminStoreData;
+    }>(
+      '/api/admin/github-backup/run',
+      { method: 'POST' },
+      adminToken,
+    );
+    if (res.data.data) {
+      setAdminData(res.data.data);
+    }
+    if (!res.ok) {
+      showToast(res.data.error || 'GitHub backup failed', 'err');
+      return false;
+    }
+    showToast(res.data.message || 'GitHub backup completed');
+    return true;
+  }, [adminToken, showToast]);
 
   const downloadFullBackup = useCallback(async (): Promise<boolean> => {
     if (!adminToken) return false;
@@ -1886,6 +1990,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     navigateAdmin,
     booting,
     adminSetupRequired,
+    maintenance,
+    refreshMaintenance,
     userState: activeStoreState,
     currentUser,
     adminData,
@@ -2007,6 +2113,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateSmmService,
     removeSmmService,
     saveStoreSettings,
+    saveGithubBackupSettings,
+    runGithubBackupNow,
     downloadFullBackup,
     restoreFullBackup,
   };

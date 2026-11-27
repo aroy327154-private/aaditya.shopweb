@@ -129,18 +129,26 @@ export interface ServerPaymentSettings {
   manualName: string;
   manualEnabled: boolean;
   manualQr: string;
+  manualMin: number;
+  manualMax: number;
   fampayUpi: string;
   fampayName: string;
   fampayEnabled: boolean;
   fampayQr: string;
+  fampayMin: number;
+  fampayMax: number;
   bharatpeUpi: string;
   bharatpeMid: string;
   bharatpeEnabled: boolean;
   bharatpeQr: string;
+  bharatpeMin: number;
+  bharatpeMax: number;
   usdtAddr: string;
   usdtNet: string;
   usdtEnabled: boolean;
   usdtQr: string;
+  usdtMin: number;
+  usdtMax: number;
 }
 
 export interface ServerImapSettings {
@@ -154,10 +162,27 @@ export interface ServerImapSettings {
   pollIntervalSec: number;
 }
 
+export interface ServerGithubBackupSettings {
+  enabled: boolean;
+  repo: string;
+  branch: string;
+  filePath: string;
+  token: string;
+  intervalMinutes: number;
+  lastBackupAt: string | null;
+  lastStatus: 'idle' | 'ok' | 'error';
+  lastMessage: string;
+  lastCommitUrl: string;
+}
+
 export interface ServerStoreSettings {
   support: string;
   supportCh: string;
   usdtRate: number;
+  maintenanceMode: boolean;
+  maintenanceTitle: string;
+  maintenanceMessage: string;
+  maintenanceEta: string;
 }
 
 export interface ServerTicketMessage {
@@ -211,6 +236,7 @@ export interface PersistedDb {
   };
   payments: ServerPaymentSettings;
   imap: ServerImapSettings;
+  githubBackup: ServerGithubBackupSettings;
   settings: ServerStoreSettings;
   tickets: ServerTicket[];
   broadcasts: ServerBroadcast[];
@@ -297,18 +323,26 @@ const INITIAL_DB: PersistedDb = {
     manualName: 'AadityaTg.Store',
     manualEnabled: true,
     manualQr: '',
+    manualMin: 10,
+    manualMax: 50000,
     fampayUpi: '',
     fampayName: 'AadityaTg.Store',
     fampayEnabled: false,
     fampayQr: '',
+    fampayMin: 10,
+    fampayMax: 50000,
     bharatpeUpi: '',
     bharatpeMid: '',
     bharatpeEnabled: false,
     bharatpeQr: '',
+    bharatpeMin: 10,
+    bharatpeMax: 50000,
     usdtAddr: '',
     usdtNet: 'TRC20',
     usdtEnabled: false,
     usdtQr: '',
+    usdtMin: 100,
+    usdtMax: 500000,
   },
   imap: {
     enabled: false,
@@ -320,10 +354,27 @@ const INITIAL_DB: PersistedDb = {
     autoApproveOnSubmit: true,
     pollIntervalSec: 30,
   },
+  githubBackup: {
+    enabled: false,
+    repo: '',
+    branch: 'main',
+    filePath: 'backups/aadityatg-store-latest-backup.json',
+    token: '',
+    intervalMinutes: 120,
+    lastBackupAt: null,
+    lastStatus: 'idle',
+    lastMessage: '',
+    lastCommitUrl: '',
+  },
   settings: {
     support: 'https://t.me/AADITYAXOFFICAL',
     supportCh: 'https://t.me/+yhaYNpSyF5U3Y2Q9',
     usdtRate: 92,
+    maintenanceMode: false,
+    maintenanceTitle: 'Store Under Maintenance',
+    maintenanceMessage:
+      'AadityaTg.Store is currently upgrading servers and live inventory. We will be back online shortly.',
+    maintenanceEta: '~15 minutes',
   },
   tickets: [],
   broadcasts: [],
@@ -340,6 +391,7 @@ function loadDbFromDisk(): PersistedDb {
       smm: { ...INITIAL_DB.smm, ...(parsed.smm || {}) },
       payments: { ...INITIAL_DB.payments, ...(parsed.payments || {}) },
       imap: { ...INITIAL_DB.imap, ...(parsed.imap || {}) },
+      githubBackup: { ...INITIAL_DB.githubBackup, ...(parsed.githubBackup || {}) },
       settings: { ...INITIAL_DB.settings, ...(parsed.settings || {}) },
     };
   } catch {
@@ -497,6 +549,19 @@ export function getAdminPayload() {
       autoApproveOnSubmit: db.imap.autoApproveOnSubmit,
       pollIntervalSec: db.imap.pollIntervalSec,
     },
+    githubBackup: {
+      enabled: db.githubBackup.enabled,
+      repo: db.githubBackup.repo,
+      branch: db.githubBackup.branch,
+      filePath: db.githubBackup.filePath,
+      intervalMinutes: db.githubBackup.intervalMinutes,
+      tokenConfigured: Boolean(db.githubBackup.token || process.env.GITHUB_BACKUP_TOKEN),
+      tokenMask: maskSecret(db.githubBackup.token || process.env.GITHUB_BACKUP_TOKEN || ''),
+      lastBackupAt: db.githubBackup.lastBackupAt,
+      lastStatus: db.githubBackup.lastStatus,
+      lastMessage: db.githubBackup.lastMessage,
+      lastCommitUrl: db.githubBackup.lastCommitUrl,
+    },
     settings: db.settings,
     tickets: db.tickets.map(normalizeTicket),
     broadcasts: db.broadcasts,
@@ -647,6 +712,17 @@ export function restoreDbFromBackup(
       },
       payments: { ...defaults.payments, ...rawPayments },
       imap: { ...defaults.imap, ...rawImap },
+      githubBackup: {
+        ...defaults.githubBackup,
+        ...(isPlainRecord(candidate.githubBackup) ? candidate.githubBackup : {}),
+        // Preserve existing token if the restored JSON intentionally omitted it
+        token:
+          isPlainRecord(candidate.githubBackup) &&
+          typeof candidate.githubBackup.token === 'string' &&
+          candidate.githubBackup.token.trim()
+            ? candidate.githubBackup.token.trim()
+            : db.githubBackup.token,
+      },
       settings: { ...defaults.settings, ...rawSettings },
       tickets: Array.isArray(candidate.tickets) ? candidate.tickets : defaults.tickets,
       broadcasts: Array.isArray(candidate.broadcasts) ? candidate.broadcasts : defaults.broadcasts,

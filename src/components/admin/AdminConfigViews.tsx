@@ -1,6 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Copy, Database, Download, Mail, Plus, QrCode, RefreshCw, Send, Trash2, Upload, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  CloudUpload,
+  Copy,
+  Database,
+  Download,
+  ExternalLink,
+  GitBranch,
+  Mail,
+  Plus,
+  QrCode,
+  RefreshCw,
+  Send,
+  ShieldAlert,
+  Trash2,
+  Upload,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useStore } from '../../store/StoreContext';
 import { formatMoneyCompact } from '../../lib/format';
 import { AdminPermissionKey, SmmService } from '../../types';
@@ -190,13 +210,13 @@ export const AdminPaymentsView: React.FC = () => {
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Payment Methods</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Turn gateways on or off and set custom QR codes. Only active gateways are shown to users; UTR payments are verified in Deposits.
+          Turn gateways on or off, set custom QR codes, and configure minimum &amp; maximum deposit limits for every payment method.
         </p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
         {/* UPI Manual */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3.5">
+        <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-display font-bold text-base text-slate-900">UPI Manual</h2>
             <PaymentToggle
@@ -214,7 +234,7 @@ export const AdminPaymentsView: React.FC = () => {
               value={p.manualUpi}
               onChange={(e) => setP({ ...p, manualUpi: e.target.value })}
               placeholder="yourupi@bank"
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
@@ -222,8 +242,30 @@ export const AdminPaymentsView: React.FC = () => {
             <input
               value={p.manualName}
               onChange={(e) => setP({ ...p, manualName: e.target.value })}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="text-xs text-slate-500">Min Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.manualMin ?? 10}
+                onChange={(e) => setP({ ...p, manualMin: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Max Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.manualMax ?? 50000}
+                onChange={(e) => setP({ ...p, manualMax: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
           </div>
           <QrUploadControl
             label="UPI Manual"
@@ -239,18 +281,20 @@ export const AdminPaymentsView: React.FC = () => {
                   manualName: p.manualName,
                   manualEnabled: p.manualEnabled,
                   manualQr: p.manualQr || '',
+                  manualMin: Number(p.manualMin) || 10,
+                  manualMax: Number(p.manualMax) || 50000,
                 },
                 'UPI Manual',
               )
             }
-            className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold"
+            className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save UPI Manual
           </button>
         </div>
 
         {/* Fampay */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3.5">
+        <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-display font-bold text-base text-slate-900">Fampay</h2>
             <PaymentToggle
@@ -268,7 +312,7 @@ export const AdminPaymentsView: React.FC = () => {
               value={p.fampayUpi}
               onChange={(e) => setP({ ...p, fampayUpi: e.target.value })}
               placeholder="name@fam"
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
@@ -276,8 +320,30 @@ export const AdminPaymentsView: React.FC = () => {
             <input
               value={p.fampayName}
               onChange={(e) => setP({ ...p, fampayName: e.target.value })}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="text-xs text-slate-500">Min Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.fampayMin ?? 10}
+                onChange={(e) => setP({ ...p, fampayMin: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Max Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.fampayMax ?? 50000}
+                onChange={(e) => setP({ ...p, fampayMax: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
           </div>
           <QrUploadControl
             label="Fampay"
@@ -293,18 +359,20 @@ export const AdminPaymentsView: React.FC = () => {
                   fampayName: p.fampayName,
                   fampayEnabled: p.fampayEnabled,
                   fampayQr: p.fampayQr || '',
+                  fampayMin: Number(p.fampayMin) || 10,
+                  fampayMax: Number(p.fampayMax) || 50000,
                 },
                 'Fampay',
               )
             }
-            className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold"
+            className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save Fampay
           </button>
         </div>
 
         {/* BharatPe */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3.5">
+        <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-display font-bold text-base text-slate-900">BharatPe</h2>
             <PaymentToggle
@@ -322,7 +390,7 @@ export const AdminPaymentsView: React.FC = () => {
               value={p.bharatpeUpi}
               onChange={(e) => setP({ ...p, bharatpeUpi: e.target.value })}
               placeholder="merchant@bharatpe"
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
@@ -330,8 +398,30 @@ export const AdminPaymentsView: React.FC = () => {
             <input
               value={p.bharatpeMid}
               onChange={(e) => setP({ ...p, bharatpeMid: e.target.value })}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="text-xs text-slate-500">Min Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.bharatpeMin ?? 10}
+                onChange={(e) => setP({ ...p, bharatpeMin: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Max Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.bharatpeMax ?? 50000}
+                onChange={(e) => setP({ ...p, bharatpeMax: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
           </div>
           <QrUploadControl
             label="BharatPe"
@@ -347,18 +437,20 @@ export const AdminPaymentsView: React.FC = () => {
                   bharatpeMid: p.bharatpeMid,
                   bharatpeEnabled: p.bharatpeEnabled,
                   bharatpeQr: p.bharatpeQr || '',
+                  bharatpeMin: Number(p.bharatpeMin) || 10,
+                  bharatpeMax: Number(p.bharatpeMax) || 50000,
                 },
                 'BharatPe',
               )
             }
-            className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold"
+            className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save BharatPe
           </button>
         </div>
 
         {/* USDT */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3.5">
+        <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-display font-bold text-base text-slate-900">USDT (Crypto)</h2>
             <PaymentToggle
@@ -376,7 +468,7 @@ export const AdminPaymentsView: React.FC = () => {
               value={p.usdtAddr}
               onChange={(e) => setP({ ...p, usdtAddr: e.target.value })}
               placeholder="TRC20 / BEP20 address"
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
@@ -384,8 +476,30 @@ export const AdminPaymentsView: React.FC = () => {
             <input
               value={p.usdtNet}
               onChange={(e) => setP({ ...p, usdtNet: e.target.value })}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="text-xs text-slate-500">Min Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.usdtMin ?? 100}
+                onChange={(e) => setP({ ...p, usdtMin: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Max Deposit (₹)</label>
+              <input
+                type="number"
+                min={1}
+                value={p.usdtMax ?? 500000}
+                onChange={(e) => setP({ ...p, usdtMax: Math.max(1, Number(e.target.value) || 1) })}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
           </div>
           <QrUploadControl
             label="USDT"
@@ -401,11 +515,13 @@ export const AdminPaymentsView: React.FC = () => {
                   usdtNet: p.usdtNet,
                   usdtEnabled: p.usdtEnabled,
                   usdtQr: p.usdtQr || '',
+                  usdtMin: Number(p.usdtMin) || 100,
+                  usdtMax: Number(p.usdtMax) || 500000,
                 },
                 'USDT',
               )
             }
-            className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold"
+            className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save USDT
           </button>
@@ -413,7 +529,7 @@ export const AdminPaymentsView: React.FC = () => {
       </div>
 
       {/* Gmail IMAP Auto-Verification for FamPay / UPI */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 space-y-4">
+      <div className="admin-card rounded-2xl p-5 sm:p-6 space-y-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
@@ -1825,6 +1941,8 @@ export const AdminSettingsView: React.FC = () => {
   const {
     adminData,
     saveStoreSettings,
+    saveGithubBackupSettings,
+    runGithubBackupNow,
     downloadFullBackup,
     restoreFullBackup,
     confirmAction,
@@ -1833,6 +1951,30 @@ export const AdminSettingsView: React.FC = () => {
   const [support, setSupport] = useState(adminData?.settings.support || '');
   const [supportCh, setSupportCh] = useState(adminData?.settings.supportCh || '');
   const [usdtRate, setUsdtRate] = useState(String(adminData?.settings.usdtRate || 92));
+
+  // Maintenance Mode state
+  const [maintMode, setMaintMode] = useState(Boolean(adminData?.settings.maintenanceMode));
+  const [maintTitle, setMaintTitle] = useState(
+    adminData?.settings.maintenanceTitle || 'We are upgrading AadityaTg.Store',
+  );
+  const [maintMsg, setMaintMsg] = useState(
+    adminData?.settings.maintenanceMessage ||
+      'Scheduled maintenance is currently in progress. All user balances and orders are 100% safe.',
+  );
+  const [maintEta, setMaintEta] = useState(adminData?.settings.maintenanceEta || 'Back online shortly');
+
+  // Automatic GitHub Backup state
+  const [ghEnabled, setGhEnabled] = useState(Boolean(adminData?.githubBackup?.enabled));
+  const [ghRepo, setGhRepo] = useState(adminData?.githubBackup?.repo || '');
+  const [ghBranch, setGhBranch] = useState(adminData?.githubBackup?.branch || 'main');
+  const [ghPath, setGhPath] = useState(
+    adminData?.githubBackup?.filePath || 'backups/aadityatg-store-latest-backup.json',
+  );
+  const [ghInterval, setGhInterval] = useState(String(adminData?.githubBackup?.intervalMinutes || 120));
+  const [ghToken, setGhToken] = useState('');
+  const [savingGh, setSavingGh] = useState(false);
+  const [runningGh, setRunningGh] = useState(false);
+
   const [backingUp, setBackingUp] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
@@ -1842,9 +1984,65 @@ export const AdminSettingsView: React.FC = () => {
     setSupport(adminData.settings.support);
     setSupportCh(adminData.settings.supportCh);
     setUsdtRate(String(adminData.settings.usdtRate));
+    setMaintMode(Boolean(adminData.settings.maintenanceMode));
+    setMaintTitle(adminData.settings.maintenanceTitle || 'We are upgrading AadityaTg.Store');
+    setMaintMsg(
+      adminData.settings.maintenanceMessage ||
+        'Scheduled maintenance is currently in progress. All user balances and orders are 100% safe.',
+    );
+    setMaintEta(adminData.settings.maintenanceEta || 'Back online shortly');
   }, [adminData?.settings]);
 
+  useEffect(() => {
+    if (!adminData?.githubBackup) return;
+    setGhEnabled(Boolean(adminData.githubBackup.enabled));
+    setGhRepo(adminData.githubBackup.repo || '');
+    setGhBranch(adminData.githubBackup.branch || 'main');
+    setGhPath(adminData.githubBackup.filePath || 'backups/aadityatg-store-latest-backup.json');
+    setGhInterval(String(adminData.githubBackup.intervalMinutes || 120));
+  }, [adminData?.githubBackup]);
+
   if (!adminData) return null;
+
+  const gh = adminData.githubBackup;
+  const safeCommitUrl =
+    gh?.lastCommitUrl && /^https:\/\//i.test(gh.lastCommitUrl) ? gh.lastCommitUrl : '';
+
+  const handleToggleMaintenance = async (next: boolean) => {
+    setMaintMode(next);
+    await saveStoreSettings({
+      maintenanceMode: next,
+      maintenanceTitle: maintTitle.trim(),
+      maintenanceMessage: maintMsg.trim(),
+      maintenanceEta: maintEta.trim(),
+    });
+  };
+
+  const handleSaveGithubConfig = async () => {
+    setSavingGh(true);
+    try {
+      const ok = await saveGithubBackupSettings({
+        enabled: ghEnabled,
+        repo: ghRepo.trim(),
+        branch: ghBranch.trim() || 'main',
+        filePath: ghPath.trim() || 'backups/aadityatg-store-latest-backup.json',
+        intervalMinutes: Math.max(5, Math.min(1440, parseInt(ghInterval, 10) || 120)),
+        ...(ghToken.trim() ? { token: ghToken.trim() } : {}),
+      });
+      if (ok) setGhToken('');
+    } finally {
+      setSavingGh(false);
+    }
+  };
+
+  const handleRunGithubBackup = async () => {
+    setRunningGh(true);
+    try {
+      await runGithubBackupNow();
+    } finally {
+      setRunningGh(false);
+    }
+  };
 
   const handleDownloadFullBackup = async () => {
     setBackingUp(true);
@@ -1898,18 +2096,309 @@ export const AdminSettingsView: React.FC = () => {
     <div className="space-y-5">
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-0.5">General store configuration and full database backup</p>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Maintenance mode, automatic 2-hour GitHub backup, store links, and full database restore
+        </p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        {/* Maintenance Mode Card */}
+        <div
+          className={`admin-card rounded-2xl p-5 sm:p-6 space-y-4 md:col-span-2 ${
+            maintMode ? 'ring-2 ring-amber-400/70 border-amber-300' : ''
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                  maintMode ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                }`}
+              >
+                <Wrench className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-bold text-base text-slate-900">
+                  Store Maintenance Mode
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  When turned ON, storefront visitors see a sleek maintenance screen and orders/deposits are paused while Admin Console stays open.
+                </p>
+              </div>
+            </div>
+            <PaymentToggle
+              label="Maintenance Mode"
+              checked={maintMode}
+              onChange={(next) => void handleToggleMaintenance(next)}
+            />
+          </div>
+
+          <div
+            className={`rounded-xl px-3.5 py-2.5 text-xs font-medium flex items-center gap-2 ${
+              maintMode
+                ? 'bg-amber-50 border border-amber-200 text-amber-900'
+                : 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+            }`}
+          >
+            {maintMode ? (
+              <>
+                <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Maintenance Mode is ACTIVE — storefront is locked for regular users.</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Storefront is LIVE and accepting orders &amp; deposits normally.</span>
+              </>
+            )}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500">Maintenance Headline</label>
+              <input
+                value={maintTitle}
+                onChange={(e) => setMaintTitle(e.target.value)}
+                placeholder="We are upgrading AadityaTg.Store"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Estimated Return (ETA)</label>
+              <input
+                value={maintEta}
+                onChange={(e) => setMaintEta(e.target.value)}
+                placeholder="Back online in ~30 mins"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-slate-500">Message to Users</label>
+              <textarea
+                rows={2}
+                value={maintMsg}
+                onChange={(e) => setMaintMsg(e.target.value)}
+                placeholder="Explain what is being updated..."
+                className="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none resize-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                void saveStoreSettings({
+                  maintenanceMode: maintMode,
+                  maintenanceTitle: maintTitle.trim(),
+                  maintenanceMessage: maintMsg.trim(),
+                  maintenanceEta: maintEta.trim(),
+                })
+              }
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
+            >
+              Save Maintenance Settings
+            </button>
+          </div>
+        </div>
+
+        {/* Automatic 2-Hour GitHub Full-DB Backup Card */}
+        <div className="admin-card rounded-2xl p-5 sm:p-6 space-y-4 md:col-span-2">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center shrink-0">
+                <CloudUpload className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-bold text-base text-slate-900">
+                  Automatic GitHub Full-DB Backup (Replace Previous File)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Automatically deletes the previous backup file in your GitHub repo and uploads the latest full database snapshot every 2 hours (configurable).
+                </p>
+              </div>
+            </div>
+            <PaymentToggle
+              label="GitHub Auto-Backup"
+              checked={ghEnabled}
+              onChange={(next) => {
+                setGhEnabled(next);
+                void saveGithubBackupSettings({ enabled: next });
+              }}
+            />
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="sm:col-span-2">
+              <label className="text-xs text-slate-500">GitHub Repository (owner/repo)</label>
+              <input
+                value={ghRepo}
+                onChange={(e) => setGhRepo(e.target.value)}
+                placeholder="username/my-private-backups"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 inline-flex items-center gap-1">
+                <GitBranch className="w-3.5 h-3.5 text-slate-400" />
+                Branch
+              </label>
+              <input
+                value={ghBranch}
+                onChange={(e) => setGhBranch(e.target.value)}
+                placeholder="main"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 inline-flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                Interval (Minutes)
+              </label>
+              <input
+                type="number"
+                min={5}
+                max={1440}
+                value={ghInterval}
+                onChange={(e) => setGhInterval(e.target.value)}
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-slate-500">Backup File Path (.json)</label>
+              <input
+                value={ghPath}
+                onChange={(e) => setGhPath(e.target.value)}
+                placeholder="backups/aadityatg-store-latest-backup.json"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-slate-500">
+                  GitHub Personal Access Token (contents:write)
+                </label>
+                {gh?.tokenConfigured && (
+                  <span className="text-[11px] font-mono text-emerald-700">
+                    Saved: {gh.tokenMask}
+                  </span>
+                )}
+              </div>
+              <input
+                type="password"
+                value={ghToken}
+                onChange={(e) => setGhToken(e.target.value)}
+                placeholder={
+                  gh?.tokenConfigured
+                    ? 'Leave blank to keep existing token, or paste new PAT'
+                    : 'ghp_... or github_pat_...'
+                }
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-slate-500">Quick schedule:</span>
+            {[
+              { label: '1 Hour (60m)', val: '60' },
+              { label: '2 Hours (120m)', val: '120' },
+              { label: '6 Hours (360m)', val: '360' },
+            ].map((opt) => (
+              <button
+                key={opt.val}
+                type="button"
+                onClick={() => setGhInterval(opt.val)}
+                className={`px-2.5 py-1 rounded-lg font-mono font-semibold transition-colors ${
+                  ghInterval === opt.val
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 text-xs text-slate-600 space-y-1">
+            <div>
+              Use a <strong>private</strong> GitHub repository. On every scheduled run, the previous backup file at the configured path is deleted first and replaced with the newest full DB snapshot (users, balances, orders, deposits, settings). Your GitHub token is automatically excluded from the uploaded JSON.
+            </div>
+            {gh && (gh.lastBackupAt || gh.lastMessage) && (
+              <div className="pt-1.5 mt-1.5 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 font-medium ${
+                    gh.lastStatus === 'error'
+                      ? 'text-red-700'
+                      : gh.lastStatus === 'ok'
+                        ? 'text-emerald-700'
+                        : 'text-slate-600'
+                  }`}
+                >
+                  {gh.lastStatus === 'error' ? (
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>
+                    {gh.lastMessage || 'Ready'}
+                    {gh.lastBackupAt ? ` · ${new Date(gh.lastBackupAt).toLocaleString()}` : ''}
+                  </span>
+                </span>
+                {safeCommitUrl && (
+                  <a
+                    href={safeCommitUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-emerald-700 hover:underline font-semibold"
+                  >
+                    View Commit
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={savingGh}
+              onClick={() => void handleSaveGithubConfig()}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs sm:text-sm font-semibold transition-colors"
+            >
+              {savingGh ? 'Saving…' : 'Save GitHub Config'}
+            </button>
+            <button
+              type="button"
+              disabled={runningGh || savingGh}
+              onClick={() => void handleRunGithubBackup()}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${runningGh ? 'animate-spin' : ''}`} />
+              {runningGh ? 'Syncing to GitHub…' : 'Backup to GitHub Now'}
+            </button>
+            {gh?.tokenConfigured && (
+              <button
+                type="button"
+                disabled={savingGh}
+                onClick={() => void saveGithubBackupSettings({ clearToken: true })}
+                className="min-h-[42px] px-3.5 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-red-700 text-xs font-semibold transition-colors"
+              >
+                Clear Token
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="admin-card rounded-2xl p-5 space-y-3">
           <h2 className="font-display font-bold text-base text-slate-900">Support Links</h2>
           <div>
             <label className="text-xs text-slate-500">Support User URL</label>
             <input
               value={support}
               onChange={(e) => setSupport(e.target.value)}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
@@ -1917,19 +2406,19 @@ export const AdminSettingsView: React.FC = () => {
             <input
               value={supportCh}
               onChange={(e) => setSupportCh(e.target.value)}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <button
             type="button"
             onClick={() => void saveStoreSettings({ support: support.trim(), supportCh: supportCh.trim() })}
-            className="min-h-[38px] px-4 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold"
+            className="min-h-[40px] px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save Support Links
           </button>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <div className="admin-card rounded-2xl p-5 space-y-3">
           <h2 className="font-display font-bold text-base text-slate-900">Exchange Rate</h2>
           <div>
             <label className="text-xs text-slate-500">USDT Rate (INR per 1 USDT)</label>
@@ -1937,24 +2426,24 @@ export const AdminSettingsView: React.FC = () => {
               type="number"
               value={usdtRate}
               onChange={(e) => setUsdtRate(e.target.value)}
-              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <button
             type="button"
             onClick={() => void saveStoreSettings({ usdtRate: parseFloat(usdtRate) || 92 })}
-            className="min-h-[38px] px-4 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold"
+            className="min-h-[40px] px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
           >
             Save Rate
           </button>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 md:col-span-2">
+        <div className="admin-card rounded-2xl p-5 space-y-3 md:col-span-2">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h2 className="font-display font-bold text-base text-slate-900 flex items-center gap-2">
-                <Database className="w-4 h-4 text-sky-600" />
-                Full Database Backup &amp; Restore
+                <Database className="w-4 h-4 text-emerald-600" />
+                Manual Local Full Database Backup &amp; Restore
               </h2>
               <p className="text-xs text-slate-600 leading-relaxed mt-1">
                 Download a complete JSON snapshot of your entire store (users, balances, password hashes, orders, deposits, stock, payment QR/UPI settings, API keys, and Gmail IMAP config) and restore it in 1 click on any server or after redeploy.
@@ -1982,7 +2471,7 @@ export const AdminSettingsView: React.FC = () => {
               type="button"
               disabled={backingUp || restoring}
               onClick={() => void handleDownloadFullBackup()}
-              className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center gap-2"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center gap-2 transition-colors"
             >
               <Download className="w-4 h-4" />
               {backingUp ? 'Preparing Backup…' : 'Download Full DB Backup'}
@@ -1992,7 +2481,7 @@ export const AdminSettingsView: React.FC = () => {
               type="button"
               disabled={backingUp || restoring}
               onClick={() => restoreInputRef.current?.click()}
-              className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center gap-2"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center gap-2 transition-colors"
             >
               <Upload className="w-4 h-4" />
               {restoring ? 'Restoring DB…' : 'Restore DB from JSON'}

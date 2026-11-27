@@ -36,11 +36,23 @@ export const DepositView: React.FC = () => {
   const usdtRate = userState?.settings.usdtRate || 92;
 
   const enabledMethods = useMemo(() => {
+    const normalizeRange = (rawMin: number | undefined, rawMax: number | undefined, dMin: number, dMax: number) => {
+      const min = Number.isFinite(Number(rawMin)) && Number(rawMin) >= 1 ? Number(rawMin) : dMin;
+      const max = Number.isFinite(Number(rawMax)) && Number(rawMax) >= min ? Number(rawMax) : Math.max(min, dMax);
+      return { min, max };
+    };
+    const manualRange = normalizeRange(p?.manualMin, p?.manualMax, 10, 50000);
+    const fampayRange = normalizeRange(p?.fampayMin, p?.fampayMax, 10, 50000);
+    const bharatpeRange = normalizeRange(p?.bharatpeMin, p?.bharatpeMax, 10, 50000);
+    const usdtRange = normalizeRange(p?.usdtMin, p?.usdtMax, 100, 500000);
+
     const all = [
       {
         id: 'upi' as const,
         title: 'UPI Manual',
         sub: 'Any UPI app · Submit UTR',
+        min: manualRange.min,
+        max: manualRange.max,
         icon: WalletIcon,
         enabled: Boolean(p?.manualEnabled),
         customQr: p?.manualQr || '',
@@ -52,6 +64,8 @@ export const DepositView: React.FC = () => {
         id: 'fampay' as const,
         title: 'Fampay UPI',
         sub: 'Submit UTR for verification',
+        min: fampayRange.min,
+        max: fampayRange.max,
         icon: Zap,
         enabled: Boolean(p?.fampayEnabled),
         customQr: p?.fampayQr || '',
@@ -63,6 +77,8 @@ export const DepositView: React.FC = () => {
         id: 'bharatpe' as const,
         title: 'BharatPe UPI',
         sub: 'Submit UTR for verification',
+        min: bharatpeRange.min,
+        max: bharatpeRange.max,
         icon: Smartphone,
         enabled: Boolean(p?.bharatpeEnabled),
         customQr: p?.bharatpeQr || '',
@@ -74,6 +90,8 @@ export const DepositView: React.FC = () => {
         id: 'usdt' as const,
         title: 'USDT (TRC20)',
         sub: `Rate ₹${usdtRate} / USDT`,
+        min: usdtRange.min,
+        max: usdtRange.max,
         icon: CreditCard,
         enabled: Boolean(p?.usdtEnabled),
         customQr: p?.usdtQr || '',
@@ -90,6 +108,33 @@ export const DepositView: React.FC = () => {
   }, [enabledMethods, method]);
 
   const activeMethod = enabledMethods.find((m) => m.id === method) || enabledMethods[0];
+
+  const amountPresets = useMemo(() => {
+    if (!activeMethod) return ['100', '500', '1000', '2000'];
+    const base = [100, 500, 1000, 2000, 5000].filter(
+      (val) => val >= activeMethod.min && val <= activeMethod.max,
+    );
+    if (base.length >= 2) return base.slice(0, 4).map(String);
+    const dynamic = Array.from(
+      new Set([
+        activeMethod.min,
+        Math.min(activeMethod.max, Math.round(activeMethod.min * 2)),
+        Math.min(activeMethod.max, Math.round(activeMethod.min * 5)),
+        activeMethod.max,
+      ]),
+    )
+      .filter((val) => val >= activeMethod.min && val <= activeMethod.max)
+      .sort((a, b) => a - b)
+      .slice(0, 4);
+    return dynamic.map(String);
+  }, [activeMethod]);
+
+  const handleSelectMethod = (m: (typeof enabledMethods)[number]) => {
+    setMethod(m.id);
+    const current = parseFloat(amount) || 0;
+    if (current < m.min) setAmount(String(m.min));
+    else if (current > m.max) setAmount(String(m.max));
+  };
 
   useEffect(() => {
     let active = true;
@@ -135,6 +180,14 @@ export const DepositView: React.FC = () => {
     e.preventDefault();
     if (!activeMethod) return;
     const num = parseFloat(amount) || 0;
+    if (num < activeMethod.min) {
+      showToast(`Minimum deposit for ${activeMethod.title} is ${formatMoneyCompact(activeMethod.min)}`, 'err');
+      return;
+    }
+    if (num > activeMethod.max) {
+      showToast(`Maximum deposit for ${activeMethod.title} is ${formatMoneyCompact(activeMethod.max)}`, 'err');
+      return;
+    }
     setSubmitting(true);
     const ok = await submitDeposit(activeMethod.title, num, utr);
     setSubmitting(false);
@@ -147,7 +200,7 @@ export const DepositView: React.FC = () => {
         <button
           type="button"
           onClick={() => navigateStore('wallet')}
-          className="w-11 h-11 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 flex items-center justify-center shrink-0"
+          className="w-11 h-11 rounded-xl glass-card glass-card-interactive flex items-center justify-center shrink-0"
           aria-label="Back to wallet"
         >
           <ArrowLeft className="w-5 h-5 text-slate-700" />
@@ -159,7 +212,7 @@ export const DepositView: React.FC = () => {
       </div>
 
       {enabledMethods.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-4">
+        <div className="glass-card rounded-2xl p-8 text-center space-y-4">
           <div className="font-display text-lg font-bold text-slate-900">
             No payment methods are active right now
           </div>
@@ -170,14 +223,14 @@ export const DepositView: React.FC = () => {
             <button
               type="button"
               onClick={() => navigateStore('redeem')}
-              className="min-h-[42px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold"
+              className="min-h-[42px] px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm"
             >
               Redeem Code
             </button>
             <button
               type="button"
               onClick={() => navigateStore('support')}
-              className="min-h-[42px] px-5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold"
+              className="min-h-[42px] px-5 py-2 rounded-xl glass-card hover:bg-white text-slate-700 text-sm font-semibold"
             >
               Contact Support
             </button>
@@ -193,23 +246,28 @@ export const DepositView: React.FC = () => {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => setMethod(m.id)}
-                  className={`w-full rounded-2xl border p-4 text-left flex items-center gap-3.5 transition-all cursor-pointer ${
+                  onClick={() => handleSelectMethod(m)}
+                  className={`w-full rounded-2xl p-4 text-left flex items-center gap-3.5 transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-emerald-50/70 border-emerald-500'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
+                      ? 'bg-gradient-to-br from-emerald-50/90 via-white/85 to-teal-50/75 backdrop-blur-xl border border-emerald-500/80 shadow-[0_14px_30px_-14px_rgba(5,150,105,0.35)]'
+                      : 'glass-card glass-card-interactive'
                   }`}
                 >
                   <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                      isSelected
+                        ? 'bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-sm'
+                        : 'bg-slate-900/5 text-slate-700'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="font-semibold text-sm text-slate-900">{m.title}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{m.sub}</div>
+                    <div className="text-xs text-slate-500 mt-0.5 truncate">{m.sub}</div>
+                    <div className="text-[11px] font-mono text-emerald-700/90 mt-1 tabular-nums">
+                      Min {formatMoneyCompact(m.min)} · Max {formatMoneyCompact(m.max)}
+                    </div>
                   </div>
                 </button>
               );
@@ -218,17 +276,24 @@ export const DepositView: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="md:col-span-7 glass-card rounded-2xl p-6 space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Amount (₹)</label>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <label className="block text-sm font-medium text-slate-700">Amount (₹)</label>
+                {activeMethod && (
+                  <span className="text-xs font-mono text-emerald-700 tabular-nums">
+                    Min {formatMoneyCompact(activeMethod.min)} · Max {formatMoneyCompact(activeMethod.max)}
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2 mb-3">
-                {['100', '500', '1000', '2000'].map((preset) => (
+                {amountPresets.map((preset) => (
                   <button
                     key={preset}
                     type="button"
                     onClick={() => setAmount(preset)}
-                    className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold transition-colors ${
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
                       amount === preset
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_8px_18px_-6px_rgba(5,150,105,0.5)]'
+                        : 'bg-white/75 border border-white/90 text-slate-700 hover:bg-white'
                     }`}
                   >
                     ₹{preset}
@@ -237,17 +302,19 @@ export const DepositView: React.FC = () => {
               </div>
               <input
                 type="number"
-                min={10}
+                min={activeMethod?.min ?? 10}
+                max={activeMethod?.max ?? 500000}
+                step="any"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="Enter amount (min ₹10)"
-                className="w-full min-h-[46px] px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-mono focus:border-emerald-600 focus:outline-none"
+                placeholder={`Enter amount (${formatMoneyCompact(activeMethod?.min ?? 10)} – ${formatMoneyCompact(activeMethod?.max ?? 50000)})`}
+                className="w-full min-h-[46px] px-4 py-2.5 rounded-xl glass-input border border-slate-200/90 text-sm font-mono focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
             {activeQrSrc && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 flex flex-col items-center text-center gap-3">
-                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="rounded-2xl border border-white/90 bg-white/55 backdrop-blur-md p-4 flex flex-col items-center text-center gap-3 shadow-2xs">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-xs">
                   <img
                     src={activeQrSrc}
                     alt={`${activeMethod?.title} QR Code`}
@@ -270,7 +337,7 @@ export const DepositView: React.FC = () => {
               </div>
             )}
 
-            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+            <div className="rounded-xl border border-white/85 bg-white/60 backdrop-blur-md p-4 space-y-2 text-sm">
               {activeMethod?.id === 'upi' && (
                 <>
                   <div className="flex items-center justify-between gap-2">
@@ -361,12 +428,12 @@ export const DepositView: React.FC = () => {
                 value={utr}
                 onChange={(e) => setUtr(e.target.value)}
                 placeholder={activeMethod?.id === 'usdt' ? '0x...' : 'Enter UTR number'}
-                className="w-full min-h-[46px] px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-mono focus:border-emerald-600 focus:outline-none"
+                className="w-full min-h-[46px] px-4 py-2.5 rounded-xl glass-input border border-slate-200/90 text-sm font-mono focus:border-emerald-600 focus:outline-none"
               />
             </div>
 
             {userState?.imapAutoVerifyEnabled && activeMethod?.id !== 'usdt' && (
-              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-800">
+              <div className="rounded-xl bg-emerald-50/85 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-800">
                 Instant Gmail verification is active — enter your exact UTR after paying for automatic wallet credit.
               </div>
             )}
@@ -374,7 +441,7 @@ export const DepositView: React.FC = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full min-h-[48px] py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold text-sm transition-all active:scale-[0.98]"
+              className="w-full min-h-[48px] py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-60 text-white font-semibold text-sm shadow-[0_12px_24px_-8px_rgba(5,150,105,0.55)] transition-all active:scale-[0.98] cursor-pointer"
             >
               {submitting
                 ? userState?.imapAutoVerifyEnabled

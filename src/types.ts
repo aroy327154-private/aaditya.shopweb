@@ -197,18 +197,26 @@ export interface PaymentSettings {
   manualName: string;
   manualEnabled: boolean;
   manualQr?: string;
+  manualMin: number;
+  manualMax: number;
   fampayUpi: string;
   fampayName: string;
   fampayEnabled: boolean;
   fampayQr?: string;
+  fampayMin: number;
+  fampayMax: number;
   bharatpeUpi: string;
   bharatpeMid: string;
   bharatpeEnabled: boolean;
   bharatpeQr?: string;
+  bharatpeMin: number;
+  bharatpeMax: number;
   usdtAddr: string;
   usdtNet: string;
   usdtEnabled: boolean;
   usdtQr?: string;
+  usdtMin: number;
+  usdtMax: number;
 }
 
 export interface ImapSettingsView {
@@ -223,10 +231,37 @@ export interface ImapSettingsView {
   pollIntervalSec: number;
 }
 
+export interface GithubBackupSettingsView {
+  enabled: boolean;
+  repo: string;
+  branch: string;
+  filePath: string;
+  intervalMinutes: number;
+  tokenConfigured: boolean;
+  tokenMask: string;
+  lastBackupAt: string | null;
+  lastStatus: 'idle' | 'ok' | 'error';
+  lastMessage: string;
+  lastCommitUrl: string;
+}
+
 export interface StoreSettings {
   support: string;
   supportCh: string;
   usdtRate: number;
+  maintenanceMode: boolean;
+  maintenanceTitle: string;
+  maintenanceMessage: string;
+  maintenanceEta: string;
+}
+
+export interface PublicMaintenanceStatus {
+  enabled: boolean;
+  title: string;
+  message: string;
+  eta: string;
+  support: string;
+  supportCh: string;
 }
 
 export interface TicketMessage {
@@ -376,6 +411,7 @@ export interface AdminStoreData {
   };
   payments: PaymentSettings;
   imap: ImapSettingsView;
+  githubBackup: GithubBackupSettingsView;
   settings: StoreSettings;
   tickets: SupportTicket[];
   broadcasts: BroadcastEntry[];

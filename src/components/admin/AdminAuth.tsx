@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, KeyRound, Lock, Shield, User } from 'lucide-react';
 import { useStore } from '../../store/StoreContext';
+import { LiveAmbientBackdrop } from '../store/LiveAmbientBackdrop';
 
 export const AdminAuth: React.FC = () => {
   const { adminSetupRequired, claimAdmin, loginAdmin, setMode } = useStore();
@@ -37,27 +38,29 @@ export const AdminAuth: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-center px-4 py-10">
-      <div className="max-w-sm w-full mx-auto">
+    <div className="relative min-h-screen overflow-hidden bg-[#04110e] text-white flex flex-col justify-center px-4 py-10">
+      <LiveAmbientBackdrop variant="hero" />
+
+      <div className="relative z-10 max-w-sm w-full mx-auto">
         <button
           type="button"
           onClick={() => setMode('store')}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 mb-6 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-100/80 hover:text-white mb-6 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Storefront
         </button>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xs">
+        <div className="rounded-3xl bg-white/94 backdrop-blur-2xl border border-white/80 p-6 sm:p-8 shadow-[0_32px_64px_-24px_rgba(0,0,0,0.65)] text-slate-900">
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white flex items-center justify-center shrink-0 shadow-[0_10px_24px_-8px_rgba(5,150,105,0.7)]">
               <Shield className="w-5 h-5" />
             </div>
             <div>
               <h1 className="font-display text-xl font-bold text-slate-900">
                 {adminSetupRequired ? 'Set Up Primary Admin' : 'Admin Console'}
               </h1>
-              <p className="text-xs text-slate-500">AadityaTg.Store</p>
+              <p className="text-xs text-slate-500">AadityaTg.Store · Secure Access</p>
             </div>
           </div>
 
@@ -88,7 +91,7 @@ export const AdminAuth: React.FC = () => {
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
                   autoComplete="username"
-                  className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-slate-900 focus:outline-none"
+                  className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
                 />
               </div>
             </div>
@@ -108,7 +111,7 @@ export const AdminAuth: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={adminSetupRequired ? 'Minimum 6 characters' : 'Enter password'}
                   autoComplete={adminSetupRequired ? 'new-password' : 'current-password'}
-                  className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-slate-900 focus:outline-none"
+                  className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
                 />
               </div>
             </div>
@@ -129,7 +132,7 @@ export const AdminAuth: React.FC = () => {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Re-enter password"
                     autoComplete="new-password"
-                    className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:border-slate-900 focus:outline-none"
+                    className="w-full min-h-[46px] pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:border-emerald-600 focus:outline-none"
                   />
                 </div>
               </div>
@@ -138,7 +141,7 @@ export const AdminAuth: React.FC = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full min-h-[48px] py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white font-semibold text-sm transition-all active:scale-[0.98]"
+              className="w-full min-h-[48px] py-3 rounded-xl bg-gradient-to-r from-slate-900 to-emerald-950 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-60 text-white font-semibold text-sm transition-all active:scale-[0.98] shadow-md"
             >
               {submitting
                 ? 'Please wait...'

@@ -5,6 +5,7 @@ import { ToastContainer } from './components/ToastContainer';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { StoreAuth } from './components/store/StoreAuth';
 import { StoreLayout } from './components/store/StoreLayout';
+import { MaintenanceView } from './components/store/MaintenanceView';
 import {
   BuyConfirmView,
   CountriesView,
@@ -48,7 +49,17 @@ import {
 } from './components/admin/AdminConfigViews';
 
 const AppContent: React.FC = () => {
-  const { mode, storePage, adminPage, currentUser, adminSession, adminData, booting } = useStore();
+  const {
+    mode,
+    storePage,
+    adminPage,
+    currentUser,
+    adminSession,
+    adminData,
+    booting,
+    maintenance,
+    isViewAs,
+  } = useStore();
 
   if (booting) {
     return (
@@ -120,6 +131,10 @@ const AppContent: React.FC = () => {
   }
 
   // Storefront Mode
+  if (maintenance.enabled && !isViewAs) {
+    return <MaintenanceView />;
+  }
+
   const isAuthPage = storePage === 'landing' || storePage === 'login' || storePage === 'register' || !currentUser;
   if (isAuthPage) {
     return <StoreAuth />;

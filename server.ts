@@ -56,6 +56,11 @@ import {
   type TgAccountFilters,
 } from './server/providers.ts';
 import {
+  resolveGithubBackupToken,
+  runGithubFullBackup,
+  validateGithubBackupConfig,
+} from './server/githubBackup.ts';
+import {
   doesEmailMatchPayment,
   fetchRecentPaymentEmails,
   testImapConnection,
@@ -150,6 +155,31 @@ function isAdminSetupRequired(): boolean {
   return !envPass && !db.primaryAdmin;
 }
 
+function getPublicMaintenancePayload() {
+  const db = getDb();
+  return {
+    enabled: Boolean(db.settings.maintenanceMode),
+    title: db.settings.maintenanceTitle || 'Store Under Maintenance',
+    message:
+      db.settings.maintenanceMessage ||
+      'AadityaTg.Store is currently undergoing maintenance. Please check back shortly.',
+    eta: db.settings.maintenanceEta || '',
+    support: db.settings.support || '',
+    supportCh: db.settings.supportCh || '',
+  };
+}
+
+function rejectIfMaintenance(req: express.Request, res: express.Response): boolean {
+  const db = getDb();
+  if (!db.settings.maintenanceMode) return false;
+  if (getRequestAdmin(req)) return false;
+  res.status(503).json({
+    error: db.settings.maintenanceMessage || 'Store is currently under maintenance. Please try again later.',
+    maintenance: true,
+  });
+  return true;
+}
+
 // ============================================================
 // PUBLIC AUTH & ACCOUNT ENDPOINTS
 // ============================================================
@@ -158,9 +188,14 @@ app.get('/api/bootstrap', (req, res) => {
   const adminUsername = getRequestAdmin(req);
   res.json({
     adminSetupRequired: isAdminSetupRequired(),
+    maintenance: getPublicMaintenancePayload(),
     userState: user && !user.banned ? getPublicUserPayload(user) : null,
     adminState: adminUsername ? { adminUsername, data: getAdminPayload() } : null,
   });
+});
+
+app.get('/api/public/maintenance', (_req, res) => {
+  res.json({ maintenance: getPublicMaintenancePayload() });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -698,6 +733,7 @@ app.get('/api/providers/tg-accounts', async (req, res) => {
 });
 
 app.post('/api/orders/buy', async (req, res) => {
+  if (rejectIfMaintenance(req, res)) return;
   const user = requireUser(req, res);
   if (!user) return;
   if (user.frozen) return res.status(403).json({ error: 'Your wallet is currently frozen' });
@@ -1049,6 +1085,7 @@ app.post('/api/orders/:id/tg-reset-sessions', async (req, res) => {
 });
 
 app.post('/api/orders/digital', (req, res) => {
+  if (rejectIfMaintenance(req, res)) return;
   const user = requireUser(req, res);
   if (!user) return;
   if (user.frozen) return res.status(403).json({ error: 'Your wallet is currently frozen' });
@@ -1076,6 +1113,7 @@ app.post('/api/orders/digital', (req, res) => {
 });
 
 app.post('/api/orders/smm', async (req, res) => {
+  if (rejectIfMaintenance(req, res)) return;
   const user = requireUser(req, res);
   if (!user) return;
   if (user.frozen) return res.status(403).json({ error: 'Your wallet is currently frozen' });
@@ -1127,20 +1165,43 @@ app.post('/api/orders/smm', async (req, res) => {
 });
 
 app.post('/api/deposits', async (req, res) => {
+  if (rejectIfMaintenance(req, res)) return;
   const user = requireUser(req, res);
   if (!user) return;
 
   const { method, amount, utr } = req.body as { method?: string; amount?: number; utr?: string };
   const numAmount = Number(amount);
   const cleanUtr = String(utr || '').trim();
-  if (!numAmount || numAmount < 10) {
-    return res.status(400).json({ error: 'Minimum deposit is ₹10' });
+  const cleanMethod = String(method || 'UPI Manual').trim();
+
+  const db = getDb();
+  const p = db.payments;
+  const methodLower = cleanMethod.toLowerCase();
+  const methodCfg = methodLower.includes('fampay')
+    ? { label: 'Fampay UPI', enabled: Boolean(p.fampayEnabled), min: Number(p.fampayMin) || 10, max: Number(p.fampayMax) || 50000 }
+    : methodLower.includes('bharatpe')
+      ? { label: 'BharatPe UPI', enabled: Boolean(p.bharatpeEnabled), min: Number(p.bharatpeMin) || 10, max: Number(p.bharatpeMax) || 50000 }
+      : methodLower.includes('usdt')
+        ? { label: 'USDT (TRC20)', enabled: Boolean(p.usdtEnabled), min: Number(p.usdtMin) || 100, max: Number(p.usdtMax) || 500000 }
+        : { label: 'UPI Manual', enabled: Boolean(p.manualEnabled), min: Number(p.manualMin) || 10, max: Number(p.manualMax) || 50000 };
+
+  if (!methodCfg.enabled) {
+    return res.status(400).json({ error: `${methodCfg.label} is currently disabled` });
+  }
+  if (!Number.isFinite(numAmount) || numAmount < methodCfg.min) {
+    return res.status(400).json({
+      error: `Minimum deposit for ${methodCfg.label} is ₹${methodCfg.min.toLocaleString('en-IN')}`,
+    });
+  }
+  if (numAmount > methodCfg.max) {
+    return res.status(400).json({
+      error: `Maximum deposit for ${methodCfg.label} is ₹${methodCfg.max.toLocaleString('en-IN')}`,
+    });
   }
   if (!cleanUtr || cleanUtr.length < 6) {
     return res.status(400).json({ error: 'Valid UTR / Transaction ID (min 6 chars) is required' });
   }
 
-  const db = getDb();
   const duplicate = db.deposits.find(
     (d) => !d.isRedeem && d.status !== 'rejected' && d.utr.toLowerCase() === cleanUtr.toLowerCase(),
   );
@@ -1153,7 +1214,7 @@ app.post('/api/deposits', async (req, res) => {
     id: nextId,
     userId: user.id,
     amount: numAmount,
-    method: String(method || 'UPI Manual'),
+    method: methodCfg.label,
     utr: cleanUtr,
     status: 'pending',
     date: nowTimestamp(),
@@ -1219,6 +1280,7 @@ app.post('/api/deposits/:id/verify-imap', async (req, res) => {
 });
 
 app.post('/api/redeem', (req, res) => {
+  if (rejectIfMaintenance(req, res)) return;
   const user = requireUser(req, res);
   if (!user) return;
 
@@ -1770,6 +1832,12 @@ app.put('/api/admin/payments', (req, res) => {
   ] as const;
   const boolFields = ['manualEnabled', 'fampayEnabled', 'bharatpeEnabled', 'usdtEnabled'] as const;
   const qrFields = ['manualQr', 'fampayQr', 'bharatpeQr', 'usdtQr'] as const;
+  const limitPairs = [
+    { minKey: 'manualMin', maxKey: 'manualMax', label: 'UPI Manual' },
+    { minKey: 'fampayMin', maxKey: 'fampayMax', label: 'Fampay' },
+    { minKey: 'bharatpeMin', maxKey: 'bharatpeMax', label: 'BharatPe' },
+    { minKey: 'usdtMin', maxKey: 'usdtMax', label: 'USDT' },
+  ] as const;
 
   for (const k of stringFields) {
     if (typeof body[k] === 'string') {
@@ -1787,6 +1855,23 @@ app.put('/api/admin/payments', (req, res) => {
       if (!check.ok) return res.status(400).json({ error: check.error });
       db.payments[k] = check.value;
     }
+  }
+  for (const pair of limitPairs) {
+    const hasMin = pair.minKey in body && body[pair.minKey] !== undefined;
+    const hasMax = pair.maxKey in body && body[pair.maxKey] !== undefined;
+    if (!hasMin && !hasMax) continue;
+    const nextMin = hasMin ? Number(body[pair.minKey]) : Number(db.payments[pair.minKey]) || 10;
+    const nextMax = hasMax ? Number(body[pair.maxKey]) : Number(db.payments[pair.maxKey]) || 50000;
+    if (!Number.isFinite(nextMin) || nextMin < 1 || nextMin > 10_000_000) {
+      return res.status(400).json({ error: `${pair.label} minimum deposit must be at least ₹1` });
+    }
+    if (!Number.isFinite(nextMax) || nextMax < nextMin || nextMax > 10_000_000) {
+      return res.status(400).json({
+        error: `${pair.label} maximum deposit must be greater than or equal to minimum deposit (₹${nextMin})`,
+      });
+    }
+    db.payments[pair.minKey] = Math.round(nextMin * 100) / 100;
+    db.payments[pair.maxKey] = Math.round(nextMax * 100) / 100;
   }
 
   saveDb();
@@ -2325,9 +2410,122 @@ app.delete('/api/admin/smm/services/:id', (req, res) => {
 app.put('/api/admin/settings', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const db = getDb();
-  db.settings = { ...db.settings, ...(req.body as Record<string, unknown>) };
+  const body = (req.body || {}) as Record<string, unknown>;
+
+  if (typeof body.support === 'string') {
+    const clean = body.support.trim().slice(0, 300);
+    if (clean && !/^https?:\/\//i.test(clean)) {
+      return res.status(400).json({ error: 'Support URL must start with http:// or https://' });
+    }
+    db.settings.support = clean;
+  }
+  if (typeof body.supportCh === 'string') {
+    const clean = body.supportCh.trim().slice(0, 300);
+    if (clean && !/^https?:\/\//i.test(clean)) {
+      return res.status(400).json({ error: 'Support channel URL must start with http:// or https://' });
+    }
+    db.settings.supportCh = clean;
+  }
+  if (body.usdtRate !== undefined) {
+    const rate = Number(body.usdtRate);
+    if (!Number.isFinite(rate) || rate <= 0 || rate > 10000) {
+      return res.status(400).json({ error: 'USDT rate must be a valid positive number' });
+    }
+    db.settings.usdtRate = Math.round(rate * 100) / 100;
+  }
+  if (typeof body.maintenanceMode === 'boolean') {
+    db.settings.maintenanceMode = body.maintenanceMode;
+  }
+  if (typeof body.maintenanceTitle === 'string') {
+    db.settings.maintenanceTitle = body.maintenanceTitle.trim().slice(0, 120) || 'Store Under Maintenance';
+  }
+  if (typeof body.maintenanceMessage === 'string') {
+    db.settings.maintenanceMessage =
+      body.maintenanceMessage.trim().slice(0, 500) ||
+      'AadityaTg.Store is currently under maintenance. Please check back shortly.';
+  }
+  if (typeof body.maintenanceEta === 'string') {
+    db.settings.maintenanceEta = body.maintenanceEta.trim().slice(0, 80);
+  }
+
   saveDb();
-  res.json({ data: getAdminPayload() });
+  res.json({ data: getAdminPayload(), maintenance: getPublicMaintenancePayload() });
+});
+
+app.put('/api/admin/github-backup', (req, res) => {
+  const adminUsername = requireAdmin(req, res);
+  if (!adminUsername) return;
+  const db = getDb();
+  const sub = db.admins.find((a) => a.username === adminUsername);
+  if (sub && !sub.p_settings) {
+    return res.status(403).json({ error: 'Settings permission required for GitHub auto-backup' });
+  }
+
+  const body = (req.body || {}) as Record<string, unknown>;
+  const nextRepo = typeof body.repo === 'string' ? body.repo : db.githubBackup.repo;
+  const nextBranch = typeof body.branch === 'string' ? body.branch : db.githubBackup.branch;
+  const nextFilePath = typeof body.filePath === 'string' ? body.filePath : db.githubBackup.filePath;
+  const nextEnabled =
+    typeof body.enabled === 'boolean' ? body.enabled : db.githubBackup.enabled;
+
+  if (nextRepo.trim() || nextEnabled) {
+    const valid = validateGithubBackupConfig({
+      repo: nextRepo,
+      branch: nextBranch,
+      filePath: nextFilePath,
+    });
+    if (!valid.ok) {
+      return res.status(400).json({ error: valid.error });
+    }
+    db.githubBackup.repo = valid.repo;
+    db.githubBackup.branch = valid.branch;
+    db.githubBackup.filePath = valid.filePath;
+  } else {
+    db.githubBackup.repo = '';
+    db.githubBackup.branch = nextBranch.trim() || 'main';
+    db.githubBackup.filePath = nextFilePath.trim() || 'backups/aadityatg-store-latest-backup.json';
+  }
+
+  if (body.intervalMinutes !== undefined) {
+    const mins = Math.round(Number(body.intervalMinutes));
+    if (!Number.isFinite(mins) || mins < 5 || mins > 1440) {
+      return res.status(400).json({ error: 'Backup interval must be between 5 and 1440 minutes' });
+    }
+    db.githubBackup.intervalMinutes = mins;
+  }
+
+  if (body.clearToken === true) {
+    db.githubBackup.token = '';
+  } else if (typeof body.token === 'string' && body.token.trim()) {
+    db.githubBackup.token = body.token.trim().slice(0, 300);
+  }
+
+  db.githubBackup.enabled = nextEnabled;
+  saveDb();
+  return res.json({ data: getAdminPayload() });
+});
+
+app.post('/api/admin/github-backup/run', async (req, res) => {
+  const adminUsername = requireAdmin(req, res);
+  if (!adminUsername) return;
+  const db = getDb();
+  const sub = db.admins.find((a) => a.username === adminUsername);
+  if (sub && !sub.p_settings) {
+    return res.status(403).json({ error: 'Settings permission required to run GitHub backup' });
+  }
+
+  const result = await runGithubFullBackup('manual');
+  if (!result.ok) {
+    return res.status(400).json({ error: result.message, data: getAdminPayload() });
+  }
+  return res.json({
+    ok: true,
+    message: result.message,
+    commitUrl: result.commitUrl,
+    replacedPrevious: result.replacedPrevious,
+    timestamp: result.timestamp,
+    data: getAdminPayload(),
+  });
 });
 
 app.get('/api/admin/backup', (req, res) => {
@@ -2699,11 +2897,23 @@ async function startServer() {
     void syncPendingDepositsViaImap().catch(() => {});
   }, 15_000);
 
+  // Automatic scheduled GitHub Full DB Backup (default every 2 hours = 120 mins)
+  // Removes the previous backup file and uploads the latest snapshot
+  setInterval(() => {
+    const db = getDb();
+    const cfg = db.githubBackup;
+    if (!cfg.enabled || !cfg.repo.trim() || !resolveGithubBackupToken()) return;
+    const intervalMs = Math.max(5, Number(cfg.intervalMinutes) || 120) * 60_000;
+    const lastMs = cfg.lastBackupAt ? Date.parse(cfg.lastBackupAt) : 0;
+    if (Number.isFinite(lastMs) && lastMs > 0 && Date.now() - lastMs < intervalMs) return;
+    void runGithubFullBackup('auto').catch(() => {});
+  }, 60_000);
+
   const httpServer = http.createServer(app);
   attachSupportWebSocketServer(httpServer);
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Aaditya TG Store server running on http://0.0.0.0:${PORT}`);
+    console.log(`AadityaTg.Store server running on http://0.0.0.0:${PORT}`);
   });
 }
 
