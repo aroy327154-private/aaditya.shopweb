@@ -26,60 +26,83 @@
   }
 }
 
-/* Frosted liquid-glass surfaces that refract the live ambient canvas */
+/* Frosted liquid-glass surfaces optimized for smooth 60fps scrolling */
 .glass-card {
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.68) 100%);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.74) 100%);
+  backdrop-filter: blur(12px) saturate(145%);
+  -webkit-backdrop-filter: blur(12px) saturate(145%);
+  border: 1px solid rgba(255, 255, 255, 0.92);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.96),
     inset 0 -1px 0 rgba(15, 23, 42, 0.03),
     0 2px 6px rgba(15, 23, 42, 0.04),
-    0 16px 36px -18px rgba(6, 78, 59, 0.16);
+    0 12px 28px -16px rgba(6, 78, 59, 0.14);
+  contain: layout style;
   transition:
-    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 220ms ease,
-    background 220ms ease;
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms ease;
 }
 
 .glass-card-interactive:hover {
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.92) 0%, rgba(246, 254, 250, 0.82) 100%);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.94) 0%, rgba(246, 254, 250, 0.86) 100%);
   border-color: rgba(16, 185, 129, 0.48);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 1),
-    0 22px 44px -18px rgba(5, 150, 105, 0.26),
-    0 8px 18px -8px rgba(15, 23, 42, 0.08);
+    0 18px 36px -16px rgba(5, 150, 105, 0.24),
+    0 6px 14px -8px rgba(15, 23, 42, 0.08);
   transform: translateY(-2px);
 }
 
 .glass-header {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow:
-    inset 0 -1px 0 rgba(15, 23, 42, 0.04),
-    0 8px 28px -14px rgba(15, 23, 42, 0.1);
-}
-
-.glass-dock {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0.72) 100%);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
-  border: 1px solid rgba(255, 255, 255, 0.94);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 1),
-    0 24px 48px -14px rgba(15, 23, 42, 0.24),
-    0 10px 24px -8px rgba(5, 150, 105, 0.18);
-}
-
-.glass-input {
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(16px) saturate(160%);
   -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow:
+    inset 0 -1px 0 rgba(15, 23, 42, 0.04),
+    0 6px 20px -12px rgba(15, 23, 42, 0.09);
+}
+
+.glass-dock {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.8) 100%);
+  backdrop-filter: blur(16px) saturate(165%);
+  -webkit-backdrop-filter: blur(16px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 20px 40px -14px rgba(15, 23, 42, 0.22),
+    0 8px 20px -8px rgba(5, 150, 105, 0.16);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.88);
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+@keyframes ambientOrbDriftA {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4%, 3%, 0) scale(1.04); }
+}
+
+@keyframes ambientOrbDriftB {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-4%, 4%, 0) scale(1.05); }
+}
+
+.ambient-orb-1 {
+  animation: ambientOrbDriftA 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.ambient-orb-2 {
+  animation: ambientOrbDriftB 22s ease-in-out infinite;
+  will-change: transform;
+}
+
+.ambient-orb-3 {
+  animation: ambientOrbDriftA 26s ease-in-out infinite reverse;
+  will-change: transform;
 }
 
 /* Elevated executive surfaces for Admin Console */
@@ -106,11 +129,11 @@
 }
 
 .admin-glass-header {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(22px) saturate(175%);
-  -webkit-backdrop-filter: blur(22px) saturate(175%);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
   border-bottom: 1px solid rgba(226, 232, 240, 0.85);
-  box-shadow: 0 4px 20px -14px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 4px 18px -14px rgba(15, 23, 42, 0.1);
 }
 
 /* Custom sleek scrollbars */

@@ -421,25 +421,25 @@ const TG_CATEGORY_META: Record<
   all: {
     title: 'All TG Accounts',
     shortLabel: 'All Accounts',
-    subtitle: 'Every live Telegram account fetched directly from the API',
+    subtitle: 'Every verified live Telegram account available right now',
     summary: 'All Origins & Types',
   },
   pushing: {
     title: 'Pushing Account',
     shortLabel: 'Pushing',
-    subtitle: 'Pushing accounts only — all live pushing accounts from the API',
+    subtitle: 'Pushing accounts only — all live pushing accounts in stock',
     summary: 'Pushing Only',
   },
   premium: {
     title: 'Premium Account',
     shortLabel: 'Premium',
-    subtitle: 'All Telegram accounts with active Telegram Premium from the API',
+    subtitle: 'All Telegram accounts with active Telegram Premium in stock',
     summary: 'Telegram Premium Only',
   },
   autoreg: {
     title: 'Autoreg Account',
     shortLabel: 'Autoreg',
-    subtitle: 'Auto-registered Telegram accounts only from the API',
+    subtitle: 'Auto-registered Telegram accounts only — live verified stock',
     summary: 'Autoreg Only',
   },
 };
@@ -745,6 +745,12 @@ export const CountriesView: React.FC = () => {
 
   const tgAccountsRef = useRef<TgAccountOption[]>([]);
   const accountsReqIdRef = useRef(0);
+  const appsReqIdRef = useRef(0);
+  const countriesReqIdRef = useRef(0);
+  const accountsPageRef = useRef(1);
+  const hasNextPageRef = useRef(false);
+  const accountsLoadingRef = useRef(false);
+  const emptyPageStreakRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const autoLoadStopRef = useRef(false);
   const nextCursorRef = useRef<{
@@ -790,9 +796,11 @@ export const CountriesView: React.FC = () => {
   }, [currentServer, worldCountries.length, fetchWorldCountries]);
 
   const loadApps = async () => {
+    const reqId = ++appsReqIdRef.current;
     setAppsLoading(true);
     setAppsError('');
     const res = await fetchServerApps();
+    if (appsReqIdRef.current !== reqId) return;
     setApps(res.apps);
     setAppsConfigured(res.configured);
     if (res.error) setAppsError(res.error);
@@ -800,6 +808,7 @@ export const CountriesView: React.FC = () => {
   };
 
   const loadCountries = async () => {
+    const reqId = ++countriesReqIdRef.current;
     setLoading(true);
     setErrorMsg('');
     const serviceParam = currentServer === 2 ? 'wa' : currentServer === 3 ? selectedAppCode : undefined;
@@ -808,6 +817,7 @@ export const CountriesView: React.FC = () => {
       serviceParam,
       currentServer === 1 ? serverFilters : undefined,
     );
+    if (countriesReqIdRef.current !== reqId) return;
     setCountries(res.countries);
     setConfigured(res.configured);
     if (res.error) setErrorMsg(res.error);
@@ -820,13 +830,17 @@ export const CountriesView: React.FC = () => {
     setAutoLoadingAll(false);
     loadingMoreRef.current = false;
     setLoadingMore(false);
+    accountsLoadingRef.current = true;
     setAccountsLoading(true);
     setAccountsError('');
     setTgAccounts([]);
     tgAccountsRef.current = [];
     setTotalApiItems(null);
+    accountsPageRef.current = 1;
     setAccountsPage(1);
+    hasNextPageRef.current = false;
     setHasNextPage(false);
+    emptyPageStreakRef.current = 0;
     nextCursorRef.current = { nextPage: null, usePriceCursor: false };
 
     const res = await fetchTgAccounts({
@@ -842,8 +856,12 @@ export const CountriesView: React.FC = () => {
     tgAccountsRef.current = res.accounts;
     setAccountsConfigured(res.configured);
     setTotalApiItems(res.totalItems);
-    setAccountsPage(res.page || 1);
-    setHasNextPage(res.hasNextPage);
+    const resolvedPage = res.page || 1;
+    accountsPageRef.current = resolvedPage;
+    setAccountsPage(resolvedPage);
+    hasNextPageRef.current = Boolean(res.hasNextPage);
+    setHasNextPage(Boolean(res.hasNextPage));
+    emptyPageStreakRef.current = 0;
     nextCursorRef.current = {
       nextPage: res.nextPage,
       nextPmin: res.nextPmin,
@@ -851,14 +869,16 @@ export const CountriesView: React.FC = () => {
       usePriceCursor: false,
     };
     if (res.error) setAccountsError(res.error);
+    accountsLoadingRef.current = false;
     setAccountsLoading(false);
   }, [fetchTgAccounts, selectedCountry?.code, selectedCountry?.iso, serverFilters]);
 
   const loadMoreAccounts = useCallback(async (): Promise<boolean> => {
-    if (loadingMoreRef.current || accountsLoading || !hasNextPage) return false;
+    if (loadingMoreRef.current || accountsLoadingRef.current || !hasNextPageRef.current) return false;
     const reqId = accountsReqIdRef.current;
     const cursor = nextCursorRef.current;
     if (!cursor.nextPage && !cursor.nextPmin && !cursor.nextPmax) {
+      hasNextPageRef.current = false;
       setHasNextPage(false);
       return false;
     }
@@ -866,13 +886,14 @@ export const CountriesView: React.FC = () => {
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
+    const currentPage = accountsPageRef.current;
     const isHighSort = serverFilters.sort === 'high';
     const requestOpts = cursor.usePriceCursor
       ? {
           countryCode: selectedCountry?.code,
           countryIso: selectedCountry?.iso,
           filters: serverFilters,
-          page: cursor.nextPage || accountsPage + 1,
+          page: cursor.nextPage || currentPage + 1,
           pmin: !isHighSort ? cursor.nextPmin : undefined,
           pmax: isHighSort ? cursor.nextPmax : undefined,
         }
@@ -880,7 +901,7 @@ export const CountriesView: React.FC = () => {
           countryCode: selectedCountry?.code,
           countryIso: selectedCountry?.iso,
           filters: serverFilters,
-          page: cursor.nextPage || accountsPage + 1,
+          page: cursor.nextPage || currentPage + 1,
         };
 
     let res = await fetchTgAccounts(requestOpts);
@@ -904,7 +925,7 @@ export const CountriesView: React.FC = () => {
         countryCode: selectedCountry?.code,
         countryIso: selectedCountry?.iso,
         filters: serverFilters,
-        page: (cursor.nextPage || accountsPage + 1),
+        page: cursor.nextPage || currentPage + 1,
         pmin: !isHighSort ? cursor.nextPmin : undefined,
         pmax: isHighSort ? cursor.nextPmax : undefined,
       });
@@ -929,20 +950,26 @@ export const CountriesView: React.FC = () => {
     }
 
     if (fresh.length > 0) {
+      emptyPageStreakRef.current = 0;
       const merged = [...tgAccountsRef.current, ...fresh];
       tgAccountsRef.current = merged;
       setTgAccounts(merged);
+    } else {
+      emptyPageStreakRef.current += 1;
     }
 
     if (typeof res.totalItems === 'number') {
       setTotalApiItems(res.totalItems);
     }
-    setAccountsPage(res.page || accountsPage + 1);
+    const nextResolvedPage = res.page || currentPage + 1;
+    accountsPageRef.current = nextResolvedPage;
+    setAccountsPage(nextResolvedPage);
 
-    const canContinue = Boolean(res.hasNextPage && fresh.length > 0);
+    const canContinue = Boolean(res.hasNextPage && (fresh.length > 0 || emptyPageStreakRef.current < 2));
+    hasNextPageRef.current = canContinue;
     setHasNextPage(canContinue);
     nextCursorRef.current = {
-      nextPage: res.nextPage ?? (canContinue ? (res.page || accountsPage) + 1 : null),
+      nextPage: res.nextPage ?? (canContinue ? nextResolvedPage + 1 : null),
       nextPmin: res.nextPmin ?? cursor.nextPmin,
       nextPmax: res.nextPmax ?? cursor.nextPmax,
       usePriceCursor: nextCursorRef.current.usePriceCursor,
@@ -951,15 +978,7 @@ export const CountriesView: React.FC = () => {
     loadingMoreRef.current = false;
     setLoadingMore(false);
     return canContinue;
-  }, [
-    accountsLoading,
-    accountsPage,
-    fetchTgAccounts,
-    hasNextPage,
-    selectedCountry?.code,
-    selectedCountry?.iso,
-    serverFilters,
-  ]);
+  }, [fetchTgAccounts, selectedCountry?.code, selectedCountry?.iso, serverFilters]);
 
   const startLoadAllAccounts = useCallback(async () => {
     if (autoLoadingAll) {
@@ -974,7 +993,7 @@ export const CountriesView: React.FC = () => {
     while (!autoLoadStopRef.current && accountsReqIdRef.current === reqId) {
       const more = await loadMoreAccounts();
       if (!more || autoLoadStopRef.current || accountsReqIdRef.current !== reqId) break;
-      await new Promise((r) => window.setTimeout(r, 1200));
+      await new Promise((r) => window.setTimeout(r, 950));
     }
 
     if (accountsReqIdRef.current === reqId) {
@@ -1243,15 +1262,15 @@ export const CountriesView: React.FC = () => {
       {
         id: 'all',
         title: 'All Accounts',
-        desc: 'Browse every live Telegram account from the API across all origins, types, and countries.',
-        meta: 'Every API Account',
+        desc: 'Browse every live Telegram account in stock across all origins, types, and countries.',
+        meta: 'Every Live Account',
         icon: Layers,
         tone: 'bg-slate-100 text-slate-800',
       },
       {
         id: 'pushing',
         title: 'Pushing Account',
-        desc: 'Pushing accounts only — shows all live pushing Telegram accounts directly from the API.',
+        desc: 'Pushing accounts only — shows all live pushing Telegram accounts currently available.',
         meta: 'Pushing Only',
         icon: Send,
         tone: 'bg-emerald-50 text-emerald-700',
@@ -1259,7 +1278,7 @@ export const CountriesView: React.FC = () => {
       {
         id: 'premium',
         title: 'Premium Account',
-        desc: 'Premium accounts only — shows all Telegram accounts with an active Premium subscription from the API.',
+        desc: 'Premium accounts only — shows all Telegram accounts with an active Premium subscription.',
         meta: 'Premium Only',
         icon: Crown,
         tone: 'bg-amber-50 text-amber-700',
@@ -1267,7 +1286,7 @@ export const CountriesView: React.FC = () => {
       {
         id: 'autoreg',
         title: 'Autoreg Account',
-        desc: 'Autoreg accounts only — shows all auto-registered Telegram accounts directly from the API.',
+        desc: 'Autoreg accounts only — shows all verified auto-registered Telegram accounts in stock.',
         meta: 'Autoreg Only',
         icon: Zap,
         tone: 'bg-indigo-50 text-indigo-700',
@@ -1289,7 +1308,7 @@ export const CountriesView: React.FC = () => {
             <div>
               <h1 className="font-display text-2xl font-bold text-slate-900">TG Accounts</h1>
               <p className="text-sm text-slate-500">
-                Choose a category filter to view all live accounts from the API
+                Choose a category filter to browse all live accounts in stock
               </p>
             </div>
           </div>
@@ -1509,10 +1528,10 @@ export const CountriesView: React.FC = () => {
     const loadedCount = tgAccounts.length;
     const shownCount = filteredTgAccounts.length;
     const countSubtitle = accountsLoading
-      ? 'Fetching live accounts from API…'
+      ? 'Loading live accounts…'
       : totalApiItems !== null && totalApiItems > loadedCount
-        ? `Showing ${shownCount.toLocaleString()} of ${totalApiItems.toLocaleString()} live accounts from API`
-        : `Showing ${shownCount.toLocaleString()} live account${shownCount === 1 ? '' : 's'} from API`;
+        ? `Showing ${shownCount.toLocaleString()} of ${totalApiItems.toLocaleString()} live accounts`
+        : `Showing ${shownCount.toLocaleString()} live account${shownCount === 1 ? '' : 's'}`;
 
     return (
       <div className="space-y-5">
@@ -2142,7 +2161,7 @@ export const CountriesView: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-display font-bold text-sm text-slate-800">
-                  {currentServer === 1 ? 'Live Stock Countries from API' : 'All Live Countries from API'}
+                  {currentServer === 1 ? 'Live Stock Countries' : 'All Available Countries'}
                 </h2>
                 <span className="text-xs font-medium text-emerald-700 tabular-nums">
                   {filtered.length.toLocaleString()} {filtered.length === 1 ? 'country' : 'countries'}
@@ -2189,10 +2208,10 @@ export const CountriesView: React.FC = () => {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <h2 className="font-display font-bold text-sm text-slate-800">
-                    All Other Countries · Direct Live API Lookup
+                    All Other Countries · Live Lookup
                   </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Tap any country below to fetch its live accounts directly from the API
+                    Tap any country below to browse its available accounts
                   </p>
                 </div>
                 <span className="text-xs font-medium text-slate-500 tabular-nums shrink-0">
@@ -2225,7 +2244,7 @@ export const CountriesView: React.FC = () => {
                       <CountryFlag iso={wc.iso} flag={wc.flag} name={wc.name} size="sm" />
                       <div className="min-w-0">
                         <div className="font-semibold text-sm text-slate-900 truncate">{wc.name}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">Check live API stock</div>
+                        <div className="text-xs text-slate-500 mt-0.5">Check live stock</div>
                       </div>
                     </div>
                     <ArrowRight className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -2250,6 +2269,8 @@ export const BuyConfirmView: React.FC = () => {
     selectedCountry,
     selectedTgAccount,
     currentUser,
+    userState,
+    setSelectedOrderId,
     navigateStore,
     placeCountryOrder,
   } = useStore();
@@ -2285,13 +2306,19 @@ export const BuyConfirmView: React.FC = () => {
     3: `App OTP (${selectedAppName || selectedAppCode.toUpperCase()})`,
   }[currentServer];
 
+  const activeLockedOrder = (userState?.orders || []).find(
+    (o) =>
+      (o.kind === 'TG' || o.kind === 'WhatsApp' || o.kind === 'AppOTP') &&
+      (o.status === 'WAIT_CODE' || o.status === 'WAIT_RETRY'),
+  );
+
   const effectiveAccount = currentServer === 1 ? selectedTgAccount : null;
   const effectivePrice = effectiveAccount ? effectiveAccount.price : selectedCountry.price;
   const hasFunds = (currentUser?.balance || 0) >= effectivePrice;
   const requiresTerms = currentServer === 1;
 
   const handleBuy = async () => {
-    if (requiresTerms && !agreedTerms) return;
+    if (buying || activeLockedOrder || (requiresTerms && !agreedTerms)) return;
     setBuying(true);
     const serviceCode = currentServer === 2 ? 'wa' : currentServer === 3 ? selectedAppCode : undefined;
     const order = await placeCountryOrder(
@@ -2517,15 +2544,45 @@ export const BuyConfirmView: React.FC = () => {
           </div>
         )}
 
+        {activeLockedOrder && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-xs text-amber-950">
+                <div className="font-semibold text-amber-900">
+                  Active Order In Progress ({activeLockedOrder.id})
+                </div>
+                <p className="text-amber-900/90 leading-relaxed">
+                  You already have an active {activeLockedOrder.kind} order waiting for OTP. Please wait for the OTP to arrive (it completes automatically) or cancel it before placing another TG Account, WhatsApp, or App OTP order.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedOrderId(activeLockedOrder.id);
+                navigateStore('order-result');
+              }}
+              className="w-full min-h-[40px] px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition-colors"
+            >
+              Open Active Order
+            </button>
+          </div>
+        )}
+
         <div className="pt-3 border-t border-slate-100">
           {hasFunds ? (
             <button
               type="button"
-              disabled={buying || (requiresTerms && !agreedTerms)}
+              disabled={buying || Boolean(activeLockedOrder) || (requiresTerms && !agreedTerms)}
               onClick={handleBuy}
               className="w-full min-h-[48px] py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm transition-all active:scale-[0.98]"
             >
-              {buying ? 'Processing order…' : 'Confirm & Buy Now'}
+              {activeLockedOrder
+                ? 'Complete Active Order First'
+                : buying
+                  ? 'Processing order…'
+                  : 'Confirm & Buy Now'}
             </button>
           ) : (
             <button
@@ -2562,6 +2619,7 @@ export const OrderResultView: React.FC = () => {
   } = useStore();
   const [polling, setPolling] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [tgCodeLoading, setTgCodeLoading] = useState(false);
   const [tgSessionLoading, setTgSessionLoading] = useState(false);
   const [tgResetLoading, setTgResetLoading] = useState(false);
@@ -2858,20 +2916,27 @@ export const OrderResultView: React.FC = () => {
             </button>
             <button
               type="button"
+              disabled={cancelling}
               onClick={() =>
                 confirmAction({
                   title: 'Cancel order & refund?',
                   message: `Cancelling order ${order.id} will refund ₹${order.price} back to your wallet if confirmed.`,
                   confirmLabel: 'Cancel & Refund',
                   danger: true,
-                  onConfirm: () => {
-                    cancelOrder(order.id);
+                  onConfirm: async () => {
+                    if (cancelling) return;
+                    setCancelling(true);
+                    try {
+                      await cancelOrder(order.id);
+                    } finally {
+                      setCancelling(false);
+                    }
                   },
                 })
               }
-              className="flex-1 min-h-[48px] py-3 px-4 rounded-xl bg-white border border-red-200 hover:bg-red-50 text-red-600 font-semibold text-sm whitespace-nowrap transition-all active:scale-[0.98]"
+              className="flex-1 min-h-[48px] py-3 px-4 rounded-xl bg-white border border-red-200 hover:bg-red-50 disabled:opacity-60 text-red-600 font-semibold text-sm whitespace-nowrap transition-all active:scale-[0.98]"
             >
-              Cancel Order
+              {cancelling ? 'Cancelling…' : 'Cancel Order'}
             </button>
           </div>
         </div>

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/StoreContext';
 import { formatMoney, formatMoneyCompact } from '../../lib/format';
-import { DigitalProduct, OrderRecord, StockItem, SupportTicket, TicketMessage, UserAccount } from '../../types';
+import { DepositRecord, DigitalProduct, OrderRecord, StockItem, SupportTicket, TicketMessage, UserAccount } from '../../types';
 import { LiveAmbientBackdrop } from '../store/LiveAmbientBackdrop';
 
 export const AdminDashboardView: React.FC = () => {
@@ -921,6 +921,7 @@ export const AdminDepositsView: React.FC = () => {
   const { adminData, approveDeposit, rejectDeposit } = useStore();
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'success' | 'rejected'>('all');
   const [search, setSearch] = useState('');
+  const [previewDep, setPreviewDep] = useState<DepositRecord | null>(null);
 
   const deposits = adminData?.deposits || [];
   const rows = useMemo(() => {
@@ -944,7 +945,9 @@ export const AdminDepositsView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold text-slate-900">Deposits</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Approve or reject incoming wallet payments</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Inspect payment screenshots, UTRs, and approve or reject incoming wallet payments
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-xl">
@@ -983,6 +986,7 @@ export const AdminDepositsView: React.FC = () => {
               <th className="py-3 px-4 text-right">Amount</th>
               <th className="py-3 px-4">Method</th>
               <th className="py-3 px-4">UTR / Ref</th>
+              <th className="py-3 px-4">Proof</th>
               <th className="py-3 px-4">Status</th>
               <th className="py-3 px-4">Date</th>
               <th className="py-3 px-4 text-right">Action</th>
@@ -991,7 +995,7 @@ export const AdminDepositsView: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-slate-400">
+                <td colSpan={9} className="py-10 text-center text-slate-400">
                   No deposits found
                 </td>
               </tr>
@@ -1005,6 +1009,25 @@ export const AdminDepositsView: React.FC = () => {
                   </td>
                   <td className="py-3 px-4 text-slate-700">{d.method}</td>
                   <td className="py-3 px-4 font-mono text-xs text-slate-600">{d.utr || '—'}</td>
+                  <td className="py-3 px-4">
+                    {d.screenshot ? (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDep(d)}
+                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 text-emerald-700 text-xs font-semibold transition-colors"
+                      >
+                        <img
+                          src={d.screenshot}
+                          alt={`Proof #${d.id}`}
+                          className="w-6 h-6 rounded object-cover border border-emerald-200"
+                        />
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="py-3 px-4">
                     <span
                       className={`text-xs font-semibold capitalize ${
@@ -1047,6 +1070,79 @@ export const AdminDepositsView: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      <AnimatePresence>
+        {previewDep && previewDep.screenshot && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewDep(null)}
+            className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm p-4 flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xl bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-display font-bold text-base text-slate-900 truncate">
+                    Payment Proof · Deposit #{previewDep.id}
+                  </div>
+                  <div className="text-xs text-slate-500 font-mono truncate">
+                    User {previewDep.userId} · {formatMoneyCompact(previewDep.amount)} · {previewDep.method} · UTR:{' '}
+                    {previewDep.utr || '—'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewDep(null)}
+                  className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 shrink-0"
+                  aria-label="Close preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-4 bg-slate-50 overflow-auto flex items-center justify-center flex-1">
+                <img
+                  src={previewDep.screenshot}
+                  alt={`Payment screenshot for deposit #${previewDep.id}`}
+                  className="max-h-[65vh] w-auto max-w-full rounded-2xl border border-slate-200 shadow-sm object-contain bg-white"
+                />
+              </div>
+              {previewDep.status === 'pending' && (
+                <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2.5 bg-white">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const id = previewDep.id;
+                      setPreviewDep(null);
+                      await rejectDeposit(id);
+                    }}
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold"
+                  >
+                    Reject Deposit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const id = previewDep.id;
+                      setPreviewDep(null);
+                      await approveDeposit(id);
+                    }}
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
+                  >
+                    Approve &amp; Credit
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

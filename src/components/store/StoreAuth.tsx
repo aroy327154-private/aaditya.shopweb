@@ -53,7 +53,8 @@ const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' })
 );
 
 export const StoreAuth: React.FC = () => {
-  const { storePage, navigateStore, loginUser, registerUser, loginWithGoogle } = useStore();
+  const { storePage, navigateStore, loginUser, registerUser, loginWithGoogle, googleAuthConfig } =
+    useStore();
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -284,23 +285,27 @@ export const StoreAuth: React.FC = () => {
                 <h1 className="font-display text-2xl font-bold text-slate-900">Welcome back</h1>
                 <p className="text-sm text-slate-500 mt-1">Sign in to access your wallet and orders.</p>
 
-                <div className="mt-6">
-                  <button
-                    type="button"
-                    disabled={googleLoading || loginLoading}
-                    onClick={() => handleGoogleAuth('login')}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-800 font-semibold text-sm inline-flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-2xs cursor-pointer"
-                  >
-                    <GoogleIcon className="w-5 h-5 shrink-0" />
-                    <span>{googleLoading ? 'Connecting Google…' : 'Continue with Google'}</span>
-                  </button>
+                {googleAuthConfig.enabled ? (
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      disabled={googleLoading || loginLoading}
+                      onClick={() => handleGoogleAuth('login')}
+                      className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-800 font-semibold text-sm inline-flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-2xs cursor-pointer"
+                    >
+                      <GoogleIcon className="w-5 h-5 shrink-0" />
+                      <span>{googleLoading ? 'Connecting Google…' : 'Continue with Google'}</span>
+                    </button>
 
-                  <div className="relative my-5 flex items-center">
-                    <div className="flex-grow border-t border-slate-200" />
-                    <span className="mx-3 text-xs font-medium text-slate-400">or sign in with email</span>
-                    <div className="flex-grow border-t border-slate-200" />
+                    <div className="relative my-5 flex items-center">
+                      <div className="flex-grow border-t border-slate-200" />
+                      <span className="mx-3 text-xs font-medium text-slate-400">or sign in with email</span>
+                      <div className="flex-grow border-t border-slate-200" />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-6" />
+                )}
 
                 <form onSubmit={handleLogin} className="space-y-4">
                   {loginErr && (
@@ -396,23 +401,27 @@ export const StoreAuth: React.FC = () => {
                   Join AadityaTg.Store to access OTP numbers, accounts, and digital services.
                 </p>
 
-                <div className="mt-6">
-                  <button
-                    type="button"
-                    disabled={googleLoading || regLoading}
-                    onClick={() => handleGoogleAuth('register')}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-800 font-semibold text-sm inline-flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-2xs cursor-pointer"
-                  >
-                    <GoogleIcon className="w-5 h-5 shrink-0" />
-                    <span>{googleLoading ? 'Connecting Google…' : 'Continue with Google'}</span>
-                  </button>
+                {googleAuthConfig.enabled ? (
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      disabled={googleLoading || regLoading}
+                      onClick={() => handleGoogleAuth('register')}
+                      className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-white hover:bg-slate-50 disabled:opacity-60 border border-slate-300 text-slate-800 font-semibold text-sm inline-flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-2xs cursor-pointer"
+                    >
+                      <GoogleIcon className="w-5 h-5 shrink-0" />
+                      <span>{googleLoading ? 'Connecting Google…' : 'Continue with Google'}</span>
+                    </button>
 
-                  <div className="relative my-5 flex items-center">
-                    <div className="flex-grow border-t border-slate-200" />
-                    <span className="mx-3 text-xs font-medium text-slate-400">or register with email</span>
-                    <div className="flex-grow border-t border-slate-200" />
+                    <div className="relative my-5 flex items-center">
+                      <div className="flex-grow border-t border-slate-200" />
+                      <span className="mx-3 text-xs font-medium text-slate-400">or register with email</span>
+                      <div className="flex-grow border-t border-slate-200" />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-6" />
+                )}
 
                 <form onSubmit={handleRegister} className="space-y-4">
                   {regErr && (

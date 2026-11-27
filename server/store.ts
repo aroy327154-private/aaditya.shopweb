@@ -34,6 +34,7 @@ export interface ServerOrder {
   providerOrderId?: string;
   credentials?: string;
   otherSessionsTerminated?: boolean;
+  refunded?: boolean;
 }
 
 export interface ServerDeposit {
@@ -46,6 +47,8 @@ export interface ServerDeposit {
   date: string;
   isRedeem?: boolean;
   verifiedBy?: 'admin' | 'imap';
+  screenshot?: string;
+  matchedEmailUid?: number;
 }
 
 export interface ServerStockItem {
@@ -175,6 +178,14 @@ export interface ServerGithubBackupSettings {
   lastCommitUrl: string;
 }
 
+export interface ServerGoogleAuthSettings {
+  enabled: boolean;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+}
+
 export interface ServerStoreSettings {
   support: string;
   supportCh: string;
@@ -237,10 +248,56 @@ export interface PersistedDb {
   payments: ServerPaymentSettings;
   imap: ServerImapSettings;
   githubBackup: ServerGithubBackupSettings;
+  googleAuth: ServerGoogleAuthSettings;
   settings: ServerStoreSettings;
   tickets: ServerTicket[];
   broadcasts: ServerBroadcast[];
+  usedUtrs: string[];
+  usedEmailUids: number[];
 }
+
+export function normalizeUtr(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase();
+}
+
+function loadDefaultGoogleAuthFromFile(): ServerGoogleAuthSettings {
+  try {
+    const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(cfgPath)) {
+      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as {
+        apiKey?: string;
+        authDomain?: string;
+        projectId?: string;
+        appId?: string;
+      };
+      const apiKey = String(parsed.apiKey || '').trim();
+      const authDomain = String(parsed.authDomain || '').trim();
+      const projectId = String(parsed.projectId || '').trim();
+      const appId = String(parsed.appId || '').trim();
+      return {
+        enabled: Boolean(apiKey && projectId),
+        apiKey,
+        authDomain,
+        projectId,
+        appId,
+      };
+    }
+  } catch {
+    // fallback to disabled blank config
+  }
+  return {
+    enabled: false,
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    appId: '',
+  };
+}
+
+const DEFAULT_GOOGLE_AUTH = loadDefaultGoogleAuthFromFile();
 
 const DATA_DIR = path.resolve(
   process.env.STORE_DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(process.cwd(), 'data'),
@@ -366,6 +423,7 @@ const INITIAL_DB: PersistedDb = {
     lastMessage: '',
     lastCommitUrl: '',
   },
+  googleAuth: DEFAULT_GOOGLE_AUTH,
   settings: {
     support: 'https://t.me/AADITYAXOFFICAL',
     supportCh: 'https://t.me/+yhaYNpSyF5U3Y2Q9',
@@ -378,22 +436,56 @@ const INITIAL_DB: PersistedDb = {
   },
   tickets: [],
   broadcasts: [],
+  usedUtrs: [],
+  usedEmailUids: [],
 };
+
+function hydrateIntegrityLists(target: PersistedDb): PersistedDb {
+  const utrSet = new Set<string>(
+    (Array.isArray(target.usedUtrs) ? target.usedUtrs : []).map((u) => normalizeUtr(u)).filter(Boolean),
+  );
+  const uidSet = new Set<number>(
+    (Array.isArray(target.usedEmailUids) ? target.usedEmailUids : [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n > 0),
+  );
+  for (const dep of target.deposits) {
+    if (dep.status === 'success' && !dep.isRedeem && dep.utr) {
+      const norm = normalizeUtr(dep.utr);
+      if (norm) utrSet.add(norm);
+    }
+    if (typeof dep.matchedEmailUid === 'number' && dep.matchedEmailUid > 0) {
+      uidSet.add(dep.matchedEmailUid);
+    }
+  }
+  for (const ord of target.orders) {
+    if (ord.status === 'CANCELLED' && ord.refunded === undefined) {
+      ord.refunded = true;
+    }
+  }
+  target.usedUtrs = Array.from(utrSet);
+  target.usedEmailUids = Array.from(uidSet);
+  return target;
+}
 
 function loadDbFromDisk(): PersistedDb {
   try {
     if (!fs.existsSync(DB_FILE)) return structuredClone(INITIAL_DB);
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     const parsed = JSON.parse(raw) as Partial<PersistedDb>;
-    return {
+    const merged: PersistedDb = {
       ...structuredClone(INITIAL_DB),
       ...parsed,
       smm: { ...INITIAL_DB.smm, ...(parsed.smm || {}) },
       payments: { ...INITIAL_DB.payments, ...(parsed.payments || {}) },
       imap: { ...INITIAL_DB.imap, ...(parsed.imap || {}) },
       githubBackup: { ...INITIAL_DB.githubBackup, ...(parsed.githubBackup || {}) },
+      googleAuth: { ...INITIAL_DB.googleAuth, ...(parsed.googleAuth || {}) },
       settings: { ...INITIAL_DB.settings, ...(parsed.settings || {}) },
+      usedUtrs: Array.isArray(parsed.usedUtrs) ? parsed.usedUtrs : [],
+      usedEmailUids: Array.isArray(parsed.usedEmailUids) ? parsed.usedEmailUids : [],
     };
+    return hydrateIntegrityLists(merged);
   } catch {
     return structuredClone(INITIAL_DB);
   }
@@ -431,10 +523,33 @@ export function sanitizeUser(u: ServerUser) {
 }
 
 export function sanitizeOrderForUser(o: ServerOrder) {
-  const { provider: _p, providerOrderId: _po, activationId: _a, ...rest } = o;
+  const { provider: _p, providerOrderId: _po, activationId: _a, refunded: _r, ...rest } = o;
   return {
     ...rest,
     canFetchTgActions: Boolean(o.kind === 'TG' && o.provider === 'lolzteam' && o.providerOrderId),
+  };
+}
+
+export function sanitizeDepositForUser(d: ServerDeposit) {
+  const { matchedEmailUid: _u, ...rest } = d;
+  return rest;
+}
+
+export function getPublicGoogleAuthConfig() {
+  const cfg = db.googleAuth || DEFAULT_GOOGLE_AUTH;
+  const apiKey = (cfg.apiKey || '').trim();
+  const authDomain = (cfg.authDomain || '').trim();
+  const projectId = (cfg.projectId || '').trim();
+  const appId = (cfg.appId || '').trim();
+  const configured = Boolean(apiKey && authDomain && projectId && appId);
+  const enabled = Boolean(cfg.enabled && configured);
+  return {
+    enabled,
+    configured,
+    apiKey: enabled ? apiKey : '',
+    authDomain: enabled ? authDomain : '',
+    projectId: enabled ? projectId : '',
+    appId: enabled ? appId : '',
   };
 }
 
@@ -483,7 +598,7 @@ export function getPublicUserPayload(user: ServerUser) {
   return {
     user: sanitizeUser(user),
     orders: db.orders.filter((o) => o.userId === user.id).map(sanitizeOrderForUser),
-    deposits: db.deposits.filter((d) => d.userId === user.id),
+    deposits: db.deposits.filter((d) => d.userId === user.id).map(sanitizeDepositForUser),
     tickets: db.tickets.filter((t) => t.userId === user.id).map(normalizeTicket),
     digital: db.digital.filter((d) => d.active),
     smm: {
@@ -501,9 +616,6 @@ export function getPublicUserPayload(user: ServerUser) {
       return {
         no: s.no,
         configured: Boolean((s.url && hasKey) || hasManualStock),
-        hasApi: Boolean(s.url && hasKey),
-        manualStockCount: s.no === 1 ? db.stock.filter((st) => st.available).length : 0,
-        margin: s.margin,
       };
     }),
   };
@@ -562,6 +674,19 @@ export function getAdminPayload() {
       lastMessage: db.githubBackup.lastMessage,
       lastCommitUrl: db.githubBackup.lastCommitUrl,
     },
+    googleAuth: {
+      enabled: Boolean(db.googleAuth?.enabled),
+      apiKey: db.googleAuth?.apiKey || '',
+      authDomain: db.googleAuth?.authDomain || '',
+      projectId: db.googleAuth?.projectId || '',
+      appId: db.googleAuth?.appId || '',
+      configured: Boolean(
+        db.googleAuth?.apiKey &&
+          db.googleAuth?.authDomain &&
+          db.googleAuth?.projectId &&
+          db.googleAuth?.appId,
+      ),
+    },
     settings: db.settings,
     tickets: db.tickets.map(normalizeTicket),
     broadcasts: db.broadcasts,
@@ -595,8 +720,29 @@ export function restoreDbFromBackup(
     return { ok: false, error: 'Backup payload must be a JSON object' };
   }
 
+  let unpacked: Record<string, unknown> = raw;
+  if (
+    raw.format === 'aaditya-tg-store-full-backup-encoded' &&
+    typeof raw.payloadBase64 === 'string' &&
+    raw.payloadBase64.trim()
+  ) {
+    try {
+      const decoded = JSON.parse(
+        Buffer.from(raw.payloadBase64.trim(), 'base64').toString('utf8'),
+      ) as unknown;
+      if (!isPlainRecord(decoded)) {
+        return { ok: false, error: 'Invalid encoded backup payload' };
+      }
+      unpacked = decoded;
+    } catch {
+      return { ok: false, error: 'Could not decode base64 backup payload' };
+    }
+  }
+
   const candidate =
-    raw.format === 'aaditya-tg-store-full-backup' && isPlainRecord(raw.db) ? raw.db : raw;
+    unpacked.format === 'aaditya-tg-store-full-backup' && isPlainRecord(unpacked.db)
+      ? unpacked.db
+      : unpacked;
 
   if (
     !Array.isArray(candidate.users) ||
@@ -723,13 +869,19 @@ export function restoreDbFromBackup(
             ? candidate.githubBackup.token.trim()
             : db.githubBackup.token,
       },
+      googleAuth: {
+        ...defaults.googleAuth,
+        ...(isPlainRecord(candidate.googleAuth) ? candidate.googleAuth : {}),
+      },
       settings: { ...defaults.settings, ...rawSettings },
       tickets: Array.isArray(candidate.tickets) ? candidate.tickets : defaults.tickets,
       broadcasts: Array.isArray(candidate.broadcasts) ? candidate.broadcasts : defaults.broadcasts,
+      usedUtrs: Array.isArray(candidate.usedUtrs) ? candidate.usedUtrs : [],
+      usedEmailUids: Array.isArray(candidate.usedEmailUids) ? candidate.usedEmailUids : [],
     }),
   ) as PersistedDb;
 
-  db = nextDb;
+  db = hydrateIntegrityLists(nextDb);
   saveDb();
 
   return {

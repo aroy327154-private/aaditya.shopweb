@@ -1,14 +1,56 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import { GoogleAuthProvider, getAuth, signInWithPopup, signOut, type User } from 'firebase/auth';
-import { doc, getDoc, getDocFromServer, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
+import { GoogleAuthProvider, getAuth, signInWithPopup, signOut, type Auth, type User } from 'firebase/auth';
+import { doc, getDoc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import type { PublicGoogleAuthConfig } from './types';
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const defaultApp = getApps().find((a) => a.name === '[DEFAULT]') || initializeApp(firebaseConfig);
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+export const db = getFirestore(defaultApp, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(defaultApp);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+let activeAuthInstance: Auth = auth;
+
+function resolveAuthForConfig(override?: Partial<PublicGoogleAuthConfig> | null): {
+  authInstance: Auth;
+  usesDefaultProject: boolean;
+} {
+  const apiKey = (override?.apiKey || '').trim();
+  const authDomain = (override?.authDomain || '').trim();
+  const projectId = (override?.projectId || '').trim();
+  const appId = (override?.appId || '').trim();
+
+  if (!apiKey || !authDomain || !projectId) {
+    return { authInstance: auth, usesDefaultProject: true };
+  }
+
+  const isSameAsDefault =
+    apiKey === firebaseConfig.apiKey &&
+    authDomain === firebaseConfig.authDomain &&
+    projectId === firebaseConfig.projectId &&
+    (!appId || appId === firebaseConfig.appId);
+
+  if (isSameAsDefault) {
+    return { authInstance: auth, usesDefaultProject: true };
+  }
+
+  const appName = `gauth-${projectId}-${apiKey.slice(-6)}`;
+  let customApp: FirebaseApp | undefined = getApps().find((a) => a.name === appName);
+  if (!customApp) {
+    customApp = initializeApp(
+      {
+        apiKey,
+        authDomain,
+        projectId,
+        ...(appId ? { appId } : {}),
+      },
+      appName,
+    );
+  }
+  return { authInstance: getAuth(customApp), usesDefaultProject: false };
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -40,13 +82,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
+      userId: activeAuthInstance.currentUser?.uid,
+      email: activeAuthInstance.currentUser?.email,
+      emailVerified: activeAuthInstance.currentUser?.emailVerified,
+      isAnonymous: activeAuthInstance.currentUser?.isAnonymous,
+      tenantId: activeAuthInstance.currentUser?.tenantId,
       providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
+        activeAuthInstance.currentUser?.providerData?.map((provider) => ({
           providerId: provider.providerId,
           email: provider.email,
         })) || [],
@@ -57,18 +99,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
-
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-
-void testConnection();
 
 async function syncGoogleUserProfile(user: User): Promise<void> {
   if (!user.uid || !user.email || !user.emailVerified) return;
@@ -104,13 +134,21 @@ async function syncGoogleUserProfile(user: User): Promise<void> {
   }
 }
 
-export async function signInWithGooglePopup(): Promise<{ idToken: string }> {
+export async function signInWithGooglePopup(
+  override?: Partial<PublicGoogleAuthConfig> | null,
+): Promise<{ idToken: string }> {
   try {
-    const credential = await signInWithPopup(auth, googleProvider);
+    const { authInstance, usesDefaultProject } = resolveAuthForConfig(override);
+    activeAuthInstance = authInstance;
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const credential = await signInWithPopup(authInstance, provider);
     const idToken = await credential.user.getIdToken();
-    void syncGoogleUserProfile(credential.user).catch(() => {
-      // Structured error already logged inside handleFirestoreError; do not block storefront session issuance
-    });
+    if (usesDefaultProject) {
+      void syncGoogleUserProfile(credential.user).catch(() => {
+        // Non-blocking profile sync
+      });
+    }
     return { idToken };
   } catch (err) {
     const code = (err as { code?: string })?.code || '';
@@ -124,14 +162,18 @@ export async function signInWithGooglePopup(): Promise<{ idToken: string }> {
       const host = typeof window !== 'undefined' ? window.location.hostname : '';
       throw new Error(
         host
-          ? `Domain "${host}" is not authorized. Add it in Firebase Console → Authentication → Settings → Authorized domains.`
-          : 'This domain is not authorized for Google Sign-In in Firebase Console.',
+          ? `Domain "${host}" is not authorized for Google Sign-In.`
+          : 'This domain is not authorized for Google Sign-In.',
       );
     }
-    throw new Error(err instanceof Error ? err.message : 'Google sign-in failed');
+    throw new Error('Google sign-in failed. Please try again or sign in with email.');
   }
 }
 
 export async function firebaseSignOut(): Promise<void> {
-  await signOut(auth);
+  try {
+    await signOut(activeAuthInstance);
+  } catch {
+    await signOut(auth).catch(() => {});
+  }
 }

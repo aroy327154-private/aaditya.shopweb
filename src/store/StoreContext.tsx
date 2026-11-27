@@ -8,6 +8,7 @@ import {
   CountryOption,
   OrderRecord,
   PaymentSettings,
+  PublicGoogleAuthConfig,
   PublicMaintenanceStatus,
   PublicStoreState,
   ServerFilterState,
@@ -50,6 +51,7 @@ interface StoreContextValue {
   adminSetupRequired: boolean;
   maintenance: PublicMaintenanceStatus;
   refreshMaintenance: () => Promise<void>;
+  googleAuthConfig: PublicGoogleAuthConfig;
 
   userState: PublicStoreState | null;
   currentUser: UserAccount | null;
@@ -135,8 +137,13 @@ interface StoreContextValue {
   resetTgOrderSessions: (orderId: string) => Promise<boolean>;
   buyDigitalProduct: (productId: number) => Promise<boolean>;
   placeSmmOrder: (service: SmmService, link: string, quantity: number) => Promise<boolean>;
-  submitDeposit: (methodLabel: string, amount: number, utr: string) => Promise<boolean>;
-  verifyDepositViaImap: (depositId: number) => Promise<boolean>;
+  submitDeposit: (
+    methodLabel: string,
+    amount: number,
+    utr: string,
+    screenshot?: string,
+  ) => Promise<boolean>;
+  verifyDepositViaImap: (depositId: number, silent?: boolean) => Promise<boolean>;
   redeemGiftCode: (code: string) => Promise<boolean>;
   createSupportTicket: (cat: SupportTicket['cat'], message: string) => Promise<SupportTicket | null>;
   sendTicketMessage: (ticketId: number, text: string) => Promise<boolean>;
@@ -218,6 +225,13 @@ interface StoreContextValue {
   updateSmmService: (id: number, patch: Partial<SmmService>) => Promise<void>;
   removeSmmService: (id: number) => Promise<void>;
   saveStoreSettings: (patch: Partial<StoreSettings>) => Promise<void>;
+  saveGoogleAuthSettings: (patch: {
+    enabled?: boolean;
+    apiKey?: string;
+    authDomain?: string;
+    projectId?: string;
+    appId?: string;
+  }) => Promise<boolean>;
   saveGithubBackupSettings: (patch: {
     enabled?: boolean;
     repo?: string;
@@ -286,6 +300,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     eta: '',
     support: '',
     supportCh: '',
+  });
+  const [googleAuthConfig, setGoogleAuthConfig] = useState<PublicGoogleAuthConfig>({
+    enabled: true,
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    appId: '',
   });
 
   // Tokens held strictly in React state memory (never localStorage)
@@ -441,11 +462,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const res = await apiRequest<{
         adminSetupRequired: boolean;
         maintenance?: PublicMaintenanceStatus;
+        googleAuth?: PublicGoogleAuthConfig;
       }>('/api/bootstrap');
       if (active && res.ok) {
         setAdminSetupRequired(Boolean(res.data.adminSetupRequired));
         if (res.data.maintenance) {
           setMaintenance(res.data.maintenance);
+        }
+        if (res.data.googleAuth) {
+          setGoogleAuthConfig(res.data.googleAuth);
         }
       }
       if (active) setBooting(false);
@@ -723,8 +748,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const loginWithGoogle = useCallback(async () => {
+    if (!googleAuthConfig.enabled) {
+      return { ok: false, error: 'Google sign-in is currently disabled by the store administrator.' };
+    }
     try {
-      const { idToken } = await signInWithGooglePopup();
+      const { idToken } = await signInWithGooglePopup(googleAuthConfig);
       const res = await apiRequest<{ token: string; isNewUser?: boolean; state: PublicStoreState }>(
         '/api/auth/google',
         {
@@ -746,7 +774,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'Google sign-in failed' };
     }
-  }, [showToast]);
+  }, [googleAuthConfig, showToast]);
 
   const logoutUser = useCallback(() => {
     setViewAsState(null);
@@ -1146,11 +1174,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const submitDeposit = useCallback(
-    async (methodLabel: string, amount: number, utr: string): Promise<boolean> => {
+    async (
+      methodLabel: string,
+      amount: number,
+      utr: string,
+      screenshot?: string,
+    ): Promise<boolean> => {
       if (!userToken) return false;
       const res = await apiRequest<{ autoVerified?: boolean; state: PublicStoreState }>(
         '/api/deposits',
-        { method: 'POST', body: JSON.stringify({ method: methodLabel, amount, utr }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            method: methodLabel,
+            amount,
+            utr,
+            ...(screenshot ? { screenshot } : {}),
+          }),
+        },
         userToken,
       );
       if (!res.ok) {
@@ -1160,8 +1201,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setUserState(res.data.state);
       showToast(
         res.data.autoVerified
-          ? `₹${amount} verified via Gmail & credited instantly!`
-          : `₹${amount} deposit submitted — waiting for verification`,
+          ? `₹${amount} verified & credited instantly!`
+          : `₹${amount} deposit submitted — automatic verification is running`,
       );
       return true;
     },
@@ -1169,7 +1210,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const verifyDepositViaImap = useCallback(
-    async (depositId: number): Promise<boolean> => {
+    async (depositId: number, silent = false): Promise<boolean> => {
       if (!userToken) return false;
       const res = await apiRequest<{ verified: boolean; state: PublicStoreState }>(
         `/api/deposits/${depositId}/verify-imap`,
@@ -1177,15 +1218,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         userToken,
       );
       if (!res.ok) {
-        showToast(res.data.error || 'Gmail verification failed', 'err');
+        if (!silent) showToast(res.data.error || 'Unable to verify payment right now', 'err');
         return false;
       }
       setUserState(res.data.state);
       if (res.data.verified) {
-        showToast('Payment verified via Gmail & credited to wallet!');
+        showToast('Payment verified & credited to your wallet!');
         return true;
       }
-      showToast('Payment alert email not found yet — try again in a few seconds', 'err');
+      if (!silent) {
+        showToast('Payment confirmation not received yet — we will keep checking automatically', 'err');
+      }
       return false;
     },
     [userToken, showToast],
@@ -1883,6 +1926,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [adminToken, userToken, refreshUserState, showToast],
   );
 
+  const saveGoogleAuthSettings = useCallback(
+    async (patch: {
+      enabled?: boolean;
+      apiKey?: string;
+      authDomain?: string;
+      projectId?: string;
+      appId?: string;
+    }): Promise<boolean> => {
+      if (!adminToken) return false;
+      const res = await apiRequest<{
+        data: AdminStoreData;
+        googleAuth?: PublicGoogleAuthConfig;
+      }>(
+        '/api/admin/google-auth',
+        { method: 'PUT', body: JSON.stringify(patch) },
+        adminToken,
+      );
+      if (!res.ok) {
+        showToast(res.data.error || 'Failed to save Google Login settings', 'err');
+        return false;
+      }
+      setAdminData(res.data.data);
+      if (res.data.googleAuth) {
+        setGoogleAuthConfig(res.data.googleAuth);
+      }
+      showToast('Google Login settings saved');
+      return true;
+    },
+    [adminToken, showToast],
+  );
+
   const saveGithubBackupSettings = useCallback(
     async (patch: {
       enabled?: boolean;
@@ -1992,6 +2066,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     adminSetupRequired,
     maintenance,
     refreshMaintenance,
+    googleAuthConfig,
     userState: activeStoreState,
     currentUser,
     adminData,
@@ -2113,6 +2188,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateSmmService,
     removeSmmService,
     saveStoreSettings,
+    saveGoogleAuthSettings,
     saveGithubBackupSettings,
     runGithubBackupNow,
     downloadFullBackup,

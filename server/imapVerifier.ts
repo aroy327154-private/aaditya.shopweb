@@ -68,7 +68,7 @@ export async function testImapConnection(
 
 export async function fetchRecentPaymentEmails(
   cfg: ServerImapSettings,
-  maxMessages = 40,
+  maxMessages = 55,
 ): Promise<ParsedPaymentEmail[]> {
   if (!cfg.email || !cfg.appPassword) {
     return [];
@@ -81,7 +81,7 @@ export async function fetchRecentPaymentEmails(
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
-      const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const since = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
       const uidsResult = await client.search({ since }, { uid: true });
       if (!Array.isArray(uidsResult) || uidsResult.length === 0) {
         return [];
@@ -122,7 +122,8 @@ export function doesEmailMatchPayment(
   senderFilter: string,
 ): boolean {
   const cleanUtr = targetUtr.trim();
-  if (cleanUtr.length < 6 || targetAmount <= 0) return false;
+  const canonicalUtr = cleanUtr.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (canonicalUtr.length < 6 || targetAmount <= 0) return false;
 
   const filterKeywords = senderFilter
     .split(',')
@@ -135,16 +136,26 @@ export function doesEmailMatchPayment(
     if (!matchedFilter) return false;
   }
 
-  // Exact standalone UTR / Reference ID match (prevents substring spoofing)
+  // Exact standalone UTR / Reference ID match (also allows spaces or dashes inside formatted UTRs while preventing substring spoofing)
   const utrRegex = new RegExp(`(^|[^a-z0-9])${escapeRegExp(cleanUtr)}([^a-z0-9]|$)`, 'i');
-  if (!utrRegex.test(email.bodyText)) {
+  let utrMatched = utrRegex.test(email.bodyText);
+  if (!utrMatched) {
+    // Allow formatted tokens like "1234 5678 9012" or "1234-5678-9012" matching "123456789012"
+    const spacedPattern = canonicalUtr
+      .split('')
+      .map((ch) => escapeRegExp(ch))
+      .join('[\\s\\-]?');
+    const spacedRegex = new RegExp(`(^|[^a-z0-9])${spacedPattern}([^a-z0-9]|$)`, 'i');
+    utrMatched = spacedRegex.test(email.bodyText);
+  }
+  if (!utrMatched) {
     return false;
   }
 
   // Exact INR / payment amount match near currency symbol or payment keywords
   const amountPatterns = [
     /(?:₹|rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi,
-    /(?:amount|amt|credited|received|paid|payment of|sum of)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi,
+    /(?:amount|amt|credited|received|paid|deposited|payment of|sum of)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi,
   ];
 
   for (const regex of amountPatterns) {
@@ -164,8 +175,13 @@ export async function verifySingleDepositViaImap(
   cfg: ServerImapSettings,
   utr: string,
   amount: number,
-): Promise<{ matched: boolean; matchedSubject?: string }> {
-  const emails = await fetchRecentPaymentEmails(cfg, 40);
-  const found = emails.find((e) => doesEmailMatchPayment(e, utr, amount, cfg.senderFilter || ''));
-  return found ? { matched: true, matchedSubject: found.subject } : { matched: false };
+  excludeUids?: Set<number>,
+): Promise<{ matched: boolean; matchedSubject?: string; matchedUid?: number }> {
+  const emails = await fetchRecentPaymentEmails(cfg, 55);
+  const found = emails.find(
+    (e) =>
+      (!excludeUids || !excludeUids.has(e.uid)) &&
+      doesEmailMatchPayment(e, utr, amount, cfg.senderFilter || ''),
+  );
+  return found ? { matched: true, matchedSubject: found.subject, matchedUid: found.uid } : { matched: false };
 }

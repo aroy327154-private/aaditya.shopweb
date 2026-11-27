@@ -1412,8 +1412,10 @@ async function fetchLolzteamSingleBatch(
   const extra: Record<string, string> = { order_by: orderBy };
   if (opts?.pmin && opts.pmin > 0) {
     extra.pmin = String(opts.pmin);
+    extra.page = '1';
   } else if (opts?.pmax && opts.pmax > 0) {
     extra.pmax = String(opts.pmax);
+    extra.page = '1';
   } else {
     extra.page = String(page);
   }
@@ -1521,21 +1523,26 @@ export async function fetchLolzteamAccountsPage(
 
   const spamActive = filters?.spam === 'free' || filters?.spam === 'blocked' || filters?.spam === 'temp';
 
-  const loadWithCountryVariants = async (useSpam: boolean): Promise<LolzteamBatchResult> => {
-    const batchOpts = { page, pmin: opts?.pmin, pmax: opts?.pmax };
+  const loadWithCountryVariants = async (
+    useSpam: boolean,
+    reqPage: number,
+    reqPmin?: number,
+    reqPmax?: number,
+  ): Promise<LolzteamBatchResult> => {
+    const batchOpts = { page: reqPage, pmin: reqPmin, pmax: reqPmax };
     if (!hasCountryFilter) {
       return fetchLolzteamSingleBatch(cleanUrl, token, filters, undefined, useSpam, batchOpts);
     }
     const primaryCode = targetIso2 || targetIso3 || rawCountry;
     let res = await fetchLolzteamSingleBatch(cleanUrl, token, filters, primaryCode, useSpam, batchOpts);
-    if (res.items.length === 0 && page === 1 && targetIso2) {
+    if (res.items.length === 0 && reqPage === 1 && targetIso2) {
       const lowerIso2 = targetIso2.toLowerCase();
       if (lowerIso2 !== primaryCode) {
         const lowerRes = await fetchLolzteamSingleBatch(cleanUrl, token, filters, lowerIso2, useSpam, batchOpts);
         if (lowerRes.items.length > 0) res = lowerRes;
       }
     }
-    if (res.items.length === 0 && page === 1 && targetIso3 && targetIso3 !== primaryCode) {
+    if (res.items.length === 0 && reqPage === 1 && targetIso3 && targetIso3 !== primaryCode) {
       const iso3Res = await fetchLolzteamSingleBatch(cleanUrl, token, filters, targetIso3, useSpam, batchOpts);
       if (iso3Res.items.length > 0) res = iso3Res;
     }
@@ -1547,7 +1554,7 @@ export async function fetchLolzteamAccountsPage(
   let usedFallback = false;
 
   try {
-    batch = await loadWithCountryVariants(true);
+    batch = await loadWithCountryVariants(true, page, opts?.pmin, opts?.pmax);
   } catch (err) {
     primaryErr = err;
   }
@@ -1558,7 +1565,7 @@ export async function fetchLolzteamAccountsPage(
 
   if (spamActive && (primaryErr || (page === 1 && matchedPrimary.length === 0))) {
     try {
-      const unfiltered = await loadWithCountryVariants(false);
+      const unfiltered = await loadWithCountryVariants(false, page, opts?.pmin, opts?.pmax);
       if (unfiltered.items.length > 0) {
         batch = unfiltered;
         usedFallback = true;
@@ -1570,7 +1577,7 @@ export async function fetchLolzteamAccountsPage(
   }
 
   if (primaryErr || !batch) {
-    throw primaryErr instanceof Error ? primaryErr : new Error('Unable to load accounts from API');
+    throw primaryErr instanceof Error ? primaryErr : new Error('Unable to load accounts right now');
   }
 
   const spamTrusted: 'free' | 'blocked' | undefined =
@@ -1585,41 +1592,60 @@ export async function fetchLolzteamAccountsPage(
   const accounts: ProviderTgAccount[] = [];
   const seenIds = new Set<string>();
 
-  for (const item of batch.items) {
-    const id = String(item.item_id ?? item.account_id ?? item.id ?? '');
-    if (!id || seenIds.has(id)) continue;
-    if (!itemMatchesLolzteamFilters(item, filters, usedFallback)) continue;
+  const collectBatchItems = (srcBatch: LolzteamBatchResult) => {
+    for (const item of srcBatch.items) {
+      const id = String(item.item_id ?? item.account_id ?? item.id ?? '');
+      if (!id || seenIds.has(id)) continue;
+      if (!itemMatchesLolzteamFilters(item, filters, usedFallback)) continue;
 
-    if (hasCountryFilter && targetKey) {
-      const itemMeta = extractItemCountryMeta(item);
-      const itemKey = (itemMeta.iso || itemMeta.code).toUpperCase();
-      // Only reject if the item explicitly declares a different country
-      if (itemKey && itemKey !== 'INTL' && itemKey !== targetKey) continue;
+      if (hasCountryFilter && targetKey) {
+        const itemMeta = extractItemCountryMeta(item);
+        const itemKey = (itemMeta.iso || itemMeta.code).toUpperCase();
+        // Only reject if the item explicitly declares a different country
+        if (itemKey && itemKey !== 'INTL' && itemKey !== targetKey) continue;
+      }
+
+      seenIds.add(id);
+      accounts.push(
+        mapLolzteamItemToAccount(
+          item,
+          marginPct,
+          usdtRate,
+          spamTrusted,
+          premiumTrusted,
+          originTrusted,
+          targetMeta,
+        ),
+      );
     }
+  };
 
-    seenIds.add(id);
-    accounts.push(
-      mapLolzteamItemToAccount(
-        item,
-        marginPct,
-        usdtRate,
-        spamTrusted,
-        premiumTrusted,
-        originTrusted,
-        targetMeta,
-      ),
-    );
+  collectBatchItems(batch);
+
+  // If strict local filters emptied this page even though more pages exist, auto-scan up to 2 extra pages
+  let lastBatch = batch;
+  let extraScans = 0;
+  while (accounts.length === 0 && lastBatch.hasNextPage && !opts?.pmin && !opts?.pmax && extraScans < 2) {
+    extraScans += 1;
+    try {
+      await sleepMs(350);
+      const nextBatch = await loadWithCountryVariants(!usedFallback, lastBatch.page + 1);
+      lastBatch = nextBatch;
+      collectBatchItems(nextBatch);
+    } catch {
+      break;
+    }
   }
 
   return {
     accounts,
-    totalItems: usedFallback ? null : batch.totalItems,
-    page: batch.page,
-    perPage: batch.perPage,
-    hasNextPage: batch.hasNextPage,
-    nextPage: batch.hasNextPage ? batch.page + 1 : null,
-    nextPmin: batch.nextPmin,
-    nextPmax: batch.nextPmax,
+    totalItems: usedFallback ? null : lastBatch.totalItems,
+    page: lastBatch.page,
+    perPage: lastBatch.perPage,
+    hasNextPage: lastBatch.hasNextPage,
+    nextPage: lastBatch.hasNextPage ? lastBatch.page + 1 : null,
+    nextPmin: lastBatch.nextPmin,
+    nextPmax: lastBatch.nextPmax,
   };
 }
 
@@ -2355,7 +2381,6 @@ export async function checkTigerOtp(
   const text = (await res.text()).trim();
   if (text.startsWith('STATUS_OK:')) {
     const code = text.slice('STATUS_OK:'.length).trim();
-    // Finalize activation cleanly just like the bot
     void fetch(
       `${cleanUrl}/stubs/handler_api.php?api_key=${encodeURIComponent(apiKey)}&action=setStatus&status=6&id=${encodeURIComponent(activationId)}`,
       { signal: AbortSignal.timeout(8000) },
@@ -2363,7 +2388,16 @@ export async function checkTigerOtp(
     return { status: 'DONE', code };
   }
   if (text.startsWith('STATUS_WAIT_RETRY:')) {
-    return { status: 'WAIT_RETRY', code: text.slice('STATUS_WAIT_RETRY:'.length).trim() };
+    const code = text.slice('STATUS_WAIT_RETRY:'.length).trim();
+    if (code) {
+      // Auto-complete immediately when OTP code is received
+      void fetch(
+        `${cleanUrl}/stubs/handler_api.php?api_key=${encodeURIComponent(apiKey)}&action=setStatus&status=6&id=${encodeURIComponent(activationId)}`,
+        { signal: AbortSignal.timeout(8000) },
+      ).catch(() => {});
+      return { status: 'DONE', code };
+    }
+    return { status: 'WAIT_RETRY' };
   }
   if (text === 'STATUS_CANCEL' || text.startsWith('ACCESS_CANCEL')) {
     return { status: 'CANCELLED' };

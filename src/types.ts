@@ -83,6 +83,7 @@ export interface DepositRecord {
   date: string;
   isRedeem?: boolean;
   verifiedBy?: 'admin' | 'imap';
+  screenshot?: string;
 }
 
 export type TgAccountCategory = 'all' | 'pushing' | 'premium' | 'autoreg';
@@ -264,6 +265,18 @@ export interface PublicMaintenanceStatus {
   supportCh: string;
 }
 
+export interface PublicGoogleAuthConfig {
+  enabled: boolean;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+}
+
+export interface AdminGoogleAuthConfig extends PublicGoogleAuthConfig {
+  configured: boolean;
+}
+
 export interface TicketMessage {
   id: string;
   sender: 'user' | 'admin';
@@ -386,9 +399,9 @@ export interface PublicStoreState {
   serverStatus: {
     no: 1 | 2 | 3;
     configured: boolean;
-    hasApi: boolean;
-    manualStockCount: number;
-    margin: number;
+    hasApi?: boolean;
+    manualStockCount?: number;
+    margin?: number;
   }[];
 }
 
@@ -411,6 +424,7 @@ export interface AdminStoreData {
   };
   payments: PaymentSettings;
   imap: ImapSettingsView;
+  googleAuth: AdminGoogleAuthConfig;
   githubBackup: GithubBackupSettingsView;
   settings: StoreSettings;
   tickets: SupportTicket[];

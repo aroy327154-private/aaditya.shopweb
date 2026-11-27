@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { WebSocketServer, WebSocket } from 'ws';
-import { getApp, getApps, initializeApp } from 'firebase-admin/app';
+import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 import {
   hashPassword,
@@ -19,9 +19,12 @@ import {
   exportFullDbBackup,
   getAdminPayload,
   getDb,
+  getPublicGoogleAuthConfig,
   getPublicUserPayload,
   normalizeTicket,
+  normalizeUtr,
   restoreDbFromBackup,
+  sanitizeDepositForUser,
   sanitizeOrderForUser,
   sanitizeUser,
   saveDb,
@@ -87,11 +90,15 @@ function getFirebaseProjectId(): string | null {
 }
 
 function getFirebaseAdminVerifier() {
-  const projectId = getFirebaseProjectId();
+  const db = getDb();
+  const configuredProjectId = (db.googleAuth?.projectId || '').trim();
+  const projectId = configuredProjectId || getFirebaseProjectId();
   if (!projectId) {
-    throw new Error('Firebase Auth is not configured on the server');
+    throw new Error('Google sign-in is not configured on the server');
   }
-  const adminApp = getApps().length ? getApp() : initializeApp({ projectId });
+  const appName = `gauth-${projectId}`;
+  const existing = getApps().find((a) => a.name === appName);
+  const adminApp = existing || initializeApp({ projectId }, appName);
   return getFirebaseAdminAuth(adminApp);
 }
 
@@ -189,6 +196,7 @@ app.get('/api/bootstrap', (req, res) => {
   res.json({
     adminSetupRequired: isAdminSetupRequired(),
     maintenance: getPublicMaintenancePayload(),
+    googleAuth: getPublicGoogleAuthConfig(),
     userState: user && !user.banned ? getPublicUserPayload(user) : null,
     adminState: adminUsername ? { adminUsername, data: getAdminPayload() } : null,
   });
@@ -196,6 +204,10 @@ app.get('/api/bootstrap', (req, res) => {
 
 app.get('/api/public/maintenance', (_req, res) => {
   res.json({ maintenance: getPublicMaintenancePayload() });
+});
+
+app.get('/api/public/auth-config', (_req, res) => {
+  res.json({ googleAuth: getPublicGoogleAuthConfig() });
 });
 
 app.post('/api/auth/register', (req, res) => {
@@ -255,6 +267,13 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/google', async (req, res) => {
+  const googleCfg = getPublicGoogleAuthConfig();
+  if (!googleCfg.enabled) {
+    return res.status(403).json({
+      error: 'Google sign-in is currently disabled by the store administrator.',
+    });
+  }
+
   const { idToken } = req.body as { idToken?: string };
   const rawToken = typeof idToken === 'string' ? idToken.trim() : '';
   if (!rawToken || rawToken.length < 20) {
@@ -311,9 +330,9 @@ app.post('/api/auth/google', async (req, res) => {
       isNewUser,
       state: getPublicUserPayload(user),
     });
-  } catch (err) {
+  } catch {
     return res.status(401).json({
-      error: err instanceof Error ? err.message : 'Google token verification failed',
+      error: 'Google sign-in could not be verified. Please try again or use email login.',
     });
   }
 });
@@ -387,24 +406,115 @@ app.get('/api/store/state', (req, res) => {
   res.json(getPublicUserPayload(user));
 });
 
+// Strict allowlist sanitizer: 0% provider / API details ever reach end users
 function sanitizeUserServiceError(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : String(err || '');
   const lower = raw.toLowerCase();
-  if (/no_numbers|no_activation|no telegram accounts|out of stock/i.test(lower)) {
+  if (/no_numbers|no_activation|no telegram accounts|out of stock|no longer available/i.test(lower)) {
     return 'Currently out of stock for this country. Please choose another country.';
   }
   if (/no_balance|insufficient|balance/i.test(lower)) {
     return 'Service temporarily unavailable. Please try again later or contact support.';
   }
-  if (
-    !raw.trim() ||
-    /https?:\/\/|lolz|lzt|tiger|nobelots|zelenka|sms-activate|handler_api|smm|provider|api key|bad_key|bad_action|error_sql|http \d+|fetch|timeout|econn|aborted/i.test(
-      raw,
-    )
-  ) {
-    return fallback;
+  if (/login code.*not.*received|code not received|no.*code.*found|sms.*not.*received/i.test(lower)) {
+    return 'Login code not received yet. Request the code in Telegram, then try again.';
   }
-  return raw;
+  if (/early_cancel|wait.*minute|2 minute|cooldown|too early/i.test(lower)) {
+    return 'Please wait a moment before cancelling this order.';
+  }
+  if (/already_finish|already_cancel|already completed/i.test(lower)) {
+    return 'This order has already been completed or cancelled.';
+  }
+  if (/session string.*not available|session.*unavailable/i.test(lower)) {
+    return 'Session string is not available for this account. Use Get Login Code to sign in via OTP.';
+  }
+  return fallback;
+}
+
+// Atomic concurrency locks to prevent double-spend, double-refund, and double-UTR credit
+const inFlightUserBuys = new Set<number>();
+const inFlightOrderLocks = new Set<string>();
+const inFlightDepositLocks = new Set<number>();
+const inFlightUtrLocks = new Set<string>();
+
+// Active order lock applies ONLY to TG, WhatsApp, and AppOTP (NOT Digital or SMM)
+const ACTIVE_LOCKED_ORDER_KINDS = new Set<ServerOrder['kind']>(['TG', 'WhatsApp', 'AppOTP']);
+
+function findActiveLockedOrder(userId: number): ServerOrder | undefined {
+  const db = getDb();
+  return db.orders.find(
+    (o) =>
+      o.userId === userId &&
+      ACTIVE_LOCKED_ORDER_KINDS.has(o.kind) &&
+      (o.status === 'WAIT_CODE' || o.status === 'WAIT_RETRY'),
+  );
+}
+
+function refundOrderOnce(order: ServerOrder, user: ServerUser | undefined): boolean {
+  if (order.refunded || order.status === 'CANCELLED' || order.status === 'DONE') {
+    return false;
+  }
+  order.refunded = true;
+  order.status = 'CANCELLED';
+  if (user && Number.isFinite(order.price) && order.price > 0) {
+    user.balance = Number((user.balance + order.price).toFixed(2));
+  }
+  saveDb();
+  return true;
+}
+
+function creditDepositOnce(
+  dep: ServerDeposit,
+  verifiedBy: 'imap' | 'admin',
+  matchedEmailUid?: number,
+): boolean {
+  const db = getDb();
+  if (dep.status !== 'pending' || dep.isRedeem) return false;
+
+  const canonUtr = normalizeUtr(dep.utr);
+  if (!canonUtr) return false;
+
+  if (!Array.isArray(db.usedUtrs)) db.usedUtrs = [];
+  if (!Array.isArray(db.usedEmailUids)) db.usedEmailUids = [];
+
+  if (db.usedUtrs.includes(canonUtr)) {
+    return false;
+  }
+  if (typeof matchedEmailUid === 'number' && db.usedEmailUids.includes(matchedEmailUid)) {
+    return false;
+  }
+
+  dep.status = 'success';
+  dep.verifiedBy = verifiedBy;
+  if (typeof matchedEmailUid === 'number') {
+    dep.matchedEmailUid = matchedEmailUid;
+    db.usedEmailUids.push(matchedEmailUid);
+  }
+  db.usedUtrs.push(canonUtr);
+
+  const u = db.users.find((x) => x.id === dep.userId);
+  if (u && Number.isFinite(dep.amount) && dep.amount > 0) {
+    u.balance = Number((u.balance + dep.amount).toFixed(2));
+    u.deposited = Number((u.deposited + dep.amount).toFixed(2));
+  }
+  saveDb();
+  return true;
+}
+
+function sanitizeScreenshotDataUrl(val: unknown): { ok: true; value?: string } | { ok: false; error: string } {
+  if (val === undefined || val === null || val === '') return { ok: true, value: undefined };
+  if (typeof val !== 'string') {
+    return { ok: false, error: 'Invalid payment screenshot format' };
+  }
+  const s = val.trim();
+  if (!s) return { ok: true, value: undefined };
+  if (s.length > 750_000) {
+    return { ok: false, error: 'Payment screenshot is too large. Please choose a smaller image.' };
+  }
+  if (!/^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(s)) {
+    return { ok: false, error: 'Payment screenshot must be a valid PNG, JPG, or WebP image' };
+  }
+  return { ok: true, value: s };
 }
 
 app.get('/api/providers/apps', async (req, res) => {
@@ -738,6 +848,19 @@ app.post('/api/orders/buy', async (req, res) => {
   if (!user) return;
   if (user.frozen) return res.status(403).json({ error: 'Your wallet is currently frozen' });
 
+  if (inFlightUserBuys.has(user.id)) {
+    return res.status(409).json({ error: 'Another order is already being processed. Please wait a moment.' });
+  }
+
+  // Single active order lock for TG, WhatsApp, and AppOTP orders
+  const activeOrder = findActiveLockedOrder(user.id);
+  if (activeOrder) {
+    return res.status(409).json({
+      error: `You already have an active ${activeOrder.kind} order (${activeOrder.id}). Please receive OTP or cancel it before placing a new order.`,
+      activeOrderId: activeOrder.id,
+    });
+  }
+
   const {
     server,
     countryCode,
@@ -762,113 +885,123 @@ app.post('/api/orders/buy', async (req, res) => {
 
   const filters = parseTgFilters((rawFilters || {}) as Record<string, unknown>);
   const orderPrice = Number(price);
-  if (!orderPrice || orderPrice <= 0) {
+  if (!Number.isFinite(orderPrice) || orderPrice <= 0) {
     return res.status(400).json({ error: 'Invalid price' });
   }
   if (user.balance < orderPrice) {
     return res.status(400).json({ error: 'Insufficient wallet balance' });
   }
 
-  const db = getDb();
-
-  // Manual stock purchase for Server 1
-  if (server === 1 && source === 'manual') {
-    const stockItem = stockId
-      ? db.stock.find((s) => s.id === stockId && s.available)
-      : db.stock.find(
-          (s) =>
-            s.available &&
-            s.country.toLowerCase() === String(countryName).toLowerCase() &&
-            matchesManualStockFilters(s, filters),
-        );
-    if (!stockItem) {
-      return res.status(409).json({ error: 'Selected account is no longer available' });
-    }
-    if (user.balance < stockItem.price) {
-      return res.status(400).json({ error: 'Insufficient wallet balance' });
-    }
-    stockItem.available = false;
-    user.balance = Number((user.balance - stockItem.price).toFixed(2));
-    const catLower = (stockItem.cat || '').toLowerCase();
-    const originLabel =
-      stockItem.origin === 'autoreg' || catLower.includes('autoreg')
-        ? 'Autoreg'
-        : stockItem.origin === 'resale' || catLower.includes('resale')
-          ? 'Resale'
-          : 'Pushing';
-    const isPrem =
-      typeof stockItem.isPremium === 'boolean' ? stockItem.isPremium : catLower.includes('premium');
-    const isSpamBlocked =
-      typeof stockItem.spamBlocked === 'boolean' ? stockItem.spamBlocked : catLower.includes('spam');
-    const order: ServerOrder = {
-      id: `T-${Date.now().toString(36).slice(-5).toUpperCase()}`,
-      userId: user.id,
-      kind: 'TG',
-      country: stockItem.country,
-      phone: stockItem.phone,
-      price: stockItem.price,
-      status: 'DONE',
-      code: stockItem.twofa !== 'None' ? `2FA: ${stockItem.twofa}` : 'Ready',
-      credentials: `Origin: ${originLabel} · ${isSpamBlocked ? 'Spam Blocked' : 'Spam Free'} · Premium: ${isPrem ? 'Yes' : 'No'} · Year: ${stockItem.year} · 2FA: ${stockItem.twofa}`,
-      provider: 'manual',
-      date: nowTimestamp(),
-    };
-    db.orders.unshift(order);
-    saveDb();
-    return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
-  }
-
-  const srv = db.servers.find((s) => s.no === server);
-  const s2Key = db.servers.find((s) => s.no === 2)?.key || '';
-  const apiKey = srv?.key || (server === 3 ? s2Key : '');
-  if (!srv || !srv.url || !apiKey) {
-    return res.status(400).json({ error: 'This server is currently unavailable. Please try again later.' });
-  }
-
+  inFlightUserBuys.add(user.id);
   try {
-    if (server === 1) {
-      const purchased = await buyLolzteamTelegram(srv.url, apiKey, countryCode, filters, itemId);
-      user.balance = Number((user.balance - orderPrice).toFixed(2));
+    const db = getDb();
+
+    // Manual stock purchase for Server 1
+    if (server === 1 && source === 'manual') {
+      const stockItem = stockId
+        ? db.stock.find((s) => s.id === stockId && s.available)
+        : db.stock.find(
+            (s) =>
+              s.available &&
+              s.country.toLowerCase() === String(countryName).toLowerCase() &&
+              matchesManualStockFilters(s, filters),
+          );
+      if (!stockItem) {
+        return res.status(409).json({ error: 'Selected account is no longer available' });
+      }
+      if (user.balance < stockItem.price) {
+        return res.status(400).json({ error: 'Insufficient wallet balance' });
+      }
+      stockItem.available = false;
+      user.balance = Number((user.balance - stockItem.price).toFixed(2));
+      const catLower = (stockItem.cat || '').toLowerCase();
+      const originLabel =
+        stockItem.origin === 'autoreg' || catLower.includes('autoreg')
+          ? 'Autoreg'
+          : stockItem.origin === 'resale' || catLower.includes('resale')
+            ? 'Resale'
+            : 'Pushing';
+      const isPrem =
+        typeof stockItem.isPremium === 'boolean' ? stockItem.isPremium : catLower.includes('premium');
+      const isSpamBlocked =
+        typeof stockItem.spamBlocked === 'boolean' ? stockItem.spamBlocked : catLower.includes('spam');
       const order: ServerOrder = {
         id: `T-${Date.now().toString(36).slice(-5).toUpperCase()}`,
         userId: user.id,
         kind: 'TG',
-        country: countryName,
-        phone: purchased.phone,
-        price: orderPrice,
+        country: stockItem.country,
+        phone: stockItem.phone,
+        price: stockItem.price,
         status: 'DONE',
-        credentials: purchased.credentials,
-        provider: 'lolzteam',
-        providerOrderId: purchased.itemId,
-        date: nowTimestamp(),
-      };
-      db.orders.unshift(order);
-      saveDb();
-      return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
-    } else {
-      const svc = serviceCode || (server === 2 ? 'wa' : 'tg');
-      const issued = await buyTigerNumber(srv.url, apiKey, svc, countryCode);
-      user.balance = Number((user.balance - orderPrice).toFixed(2));
-      const order: ServerOrder = {
-        id: `${server === 2 ? 'W' : 'A'}-${Date.now().toString(36).slice(-5).toUpperCase()}`,
-        userId: user.id,
-        kind: server === 2 ? 'WhatsApp' : 'AppOTP',
-        country: countryName,
-        phone: issued.phone,
-        price: orderPrice,
-        status: 'WAIT_CODE',
-        provider: 'tiger',
-        activationId: issued.activationId,
+        code: stockItem.twofa !== 'None' ? `2FA: ${stockItem.twofa}` : 'Ready',
+        credentials: `Origin: ${originLabel} · ${isSpamBlocked ? 'Spam Blocked' : 'Spam Free'} · Premium: ${isPrem ? 'Yes' : 'No'} · Year: ${stockItem.year} · 2FA: ${stockItem.twofa}`,
+        provider: 'manual',
         date: nowTimestamp(),
       };
       db.orders.unshift(order);
       saveDb();
       return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
     }
-  } catch (err) {
-    return res.status(502).json({
-      error: sanitizeUserServiceError(err, 'Unable to complete order right now. Please try again.'),
-    });
+
+    const srv = db.servers.find((s) => s.no === server);
+    const s2Key = db.servers.find((s) => s.no === 2)?.key || '';
+    const apiKey = srv?.key || (server === 3 ? s2Key : '');
+    if (!srv || !srv.url || !apiKey) {
+      return res.status(400).json({ error: 'This service is currently unavailable. Please try again later.' });
+    }
+
+    // Reserve balance BEFORE calling external provider to prevent concurrent double-spend
+    user.balance = Number((user.balance - orderPrice).toFixed(2));
+    saveDb();
+
+    try {
+      if (server === 1) {
+        const purchased = await buyLolzteamTelegram(srv.url, apiKey, countryCode, filters, itemId);
+        const order: ServerOrder = {
+          id: `T-${Date.now().toString(36).slice(-5).toUpperCase()}`,
+          userId: user.id,
+          kind: 'TG',
+          country: countryName,
+          phone: purchased.phone,
+          price: orderPrice,
+          status: 'DONE',
+          credentials: purchased.credentials,
+          provider: 'lolzteam',
+          providerOrderId: purchased.itemId,
+          date: nowTimestamp(),
+        };
+        db.orders.unshift(order);
+        saveDb();
+        return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+      } else {
+        const svc = serviceCode || (server === 2 ? 'wa' : 'tg');
+        const issued = await buyTigerNumber(srv.url, apiKey, svc, countryCode);
+        const order: ServerOrder = {
+          id: `${server === 2 ? 'W' : 'A'}-${Date.now().toString(36).slice(-5).toUpperCase()}`,
+          userId: user.id,
+          kind: server === 2 ? 'WhatsApp' : 'AppOTP',
+          country: countryName,
+          phone: issued.phone,
+          price: orderPrice,
+          status: 'WAIT_CODE',
+          provider: 'tiger',
+          activationId: issued.activationId,
+          date: nowTimestamp(),
+        };
+        db.orders.unshift(order);
+        saveDb();
+        return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+      }
+    } catch (err) {
+      // Cleanly restore reserved balance on provider failure
+      user.balance = Number((user.balance + orderPrice).toFixed(2));
+      saveDb();
+      return res.status(502).json({
+        error: sanitizeUserServiceError(err, 'Unable to complete order right now. Please try again.'),
+      });
+    }
+  } finally {
+    inFlightUserBuys.delete(user.id);
   }
 });
 
@@ -883,6 +1016,10 @@ app.post('/api/orders/:id/check-otp', async (req, res) => {
     return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
   }
 
+  if (inFlightOrderLocks.has(order.id)) {
+    return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+  }
+
   const serverNo = order.kind === 'WhatsApp' ? 2 : 3;
   const srv = db.servers.find((s) => s.no === serverNo);
   const s2Key = db.servers.find((s) => s.no === 2)?.key || '';
@@ -891,26 +1028,30 @@ app.post('/api/orders/:id/check-otp', async (req, res) => {
     return res.status(400).json({ error: 'Service temporarily unavailable. Please contact support.' });
   }
 
+  inFlightOrderLocks.add(order.id);
   try {
+    if (order.status !== 'WAIT_CODE' && order.status !== 'WAIT_RETRY') {
+      return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+    }
     const result = await checkTigerOtp(srv.url, apiKey, order.activationId);
-    if (result.status === 'DONE' && result.code) {
+    if (result.code && (result.status === 'DONE' || result.status === 'WAIT_RETRY')) {
+      // Auto-complete immediately when OTP is received so user can place their next order
       order.status = 'DONE';
       order.code = result.code;
       saveDb();
     } else if (result.status === 'WAIT_RETRY') {
       order.status = 'WAIT_RETRY';
-      if (result.code) order.code = result.code;
       saveDb();
     } else if (result.status === 'CANCELLED') {
-      order.status = 'CANCELLED';
-      user.balance = Number((user.balance + order.price).toFixed(2));
-      saveDb();
+      refundOrderOnce(order, user);
     }
     return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
   } catch (err) {
     return res.status(502).json({
       error: sanitizeUserServiceError(err, 'Unable to check OTP right now. Please try again.'),
     });
+  } finally {
+    inFlightOrderLocks.delete(order.id);
   }
 });
 
@@ -924,6 +1065,9 @@ app.post('/api/orders/:id/retry-otp', async (req, res) => {
   if ((order.status !== 'WAIT_CODE' && order.status !== 'WAIT_RETRY') || !order.activationId) {
     return res.status(400).json({ error: 'Retry SMS is not available for this order.' });
   }
+  if (inFlightOrderLocks.has(order.id)) {
+    return res.status(409).json({ error: 'Order is currently updating. Please wait a second.' });
+  }
 
   const serverNo = order.kind === 'WhatsApp' ? 2 : 3;
   const srv = db.servers.find((s) => s.no === serverNo);
@@ -933,6 +1077,7 @@ app.post('/api/orders/:id/retry-otp', async (req, res) => {
     return res.status(400).json({ error: 'Service temporarily unavailable. Please contact support.' });
   }
 
+  inFlightOrderLocks.add(order.id);
   try {
     await retryTigerOtp(srv.url, apiKey, order.activationId);
     order.status = 'WAIT_CODE';
@@ -943,6 +1088,8 @@ app.post('/api/orders/:id/retry-otp', async (req, res) => {
     return res.status(502).json({
       error: sanitizeUserServiceError(err, 'Unable to request another SMS right now.'),
     });
+  } finally {
+    inFlightOrderLocks.delete(order.id);
   }
 });
 
@@ -956,40 +1103,51 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
   if (order.status !== 'WAIT_CODE' && order.status !== 'WAIT_RETRY') {
     return res.status(400).json({ error: 'Only pending OTP orders can be cancelled' });
   }
-
-  if (order.activationId) {
-    const serverNo = order.kind === 'WhatsApp' ? 2 : 3;
-    const srv = db.servers.find((s) => s.no === serverNo);
-    const s2Key = db.servers.find((s) => s.no === 2)?.key || '';
-    const apiKey = srv?.key || (serverNo === 3 ? s2Key : '');
-    if (srv?.url && apiKey) {
-      try {
-        const result = await cancelTigerOtp(srv.url, apiKey, order.activationId);
-        if (result.outcome === 'DONE' && result.code) {
-          order.status = 'DONE';
-          order.code = result.code;
-          saveDb();
-          return res.json({
-            order: sanitizeOrderForUser(order),
-            state: getPublicUserPayload(user),
-            alreadyReceived: true,
-          });
-        }
-      } catch (err) {
-        return res.status(400).json({
-          error: sanitizeUserServiceError(
-            err,
-            'Cancellation could not be confirmed yet. Please wait a moment and try again.',
-          ),
-        });
-      }
-    }
+  if (inFlightOrderLocks.has(order.id)) {
+    return res.status(409).json({ error: 'Cancellation is already in progress. Please wait.' });
   }
 
-  order.status = 'CANCELLED';
-  user.balance = Number((user.balance + order.price).toFixed(2));
-  saveDb();
-  return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+  inFlightOrderLocks.add(order.id);
+  try {
+    if (order.status !== 'WAIT_CODE' && order.status !== 'WAIT_RETRY') {
+      return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+    }
+
+    if (order.activationId) {
+      const serverNo = order.kind === 'WhatsApp' ? 2 : 3;
+      const srv = db.servers.find((s) => s.no === serverNo);
+      const s2Key = db.servers.find((s) => s.no === 2)?.key || '';
+      const apiKey = srv?.key || (serverNo === 3 ? s2Key : '');
+      if (srv?.url && apiKey) {
+        try {
+          const result = await cancelTigerOtp(srv.url, apiKey, order.activationId);
+          if (result.outcome === 'DONE' && result.code) {
+            order.status = 'DONE';
+            order.code = result.code;
+            saveDb();
+            return res.json({
+              order: sanitizeOrderForUser(order),
+              state: getPublicUserPayload(user),
+              alreadyReceived: true,
+            });
+          }
+        } catch (err) {
+          return res.status(400).json({
+            error: sanitizeUserServiceError(
+              err,
+              'Cancellation could not be confirmed yet. Please wait a moment and try again.',
+            ),
+          });
+        }
+      }
+    }
+
+    // Atomic single-refund guard prevents duplicate balance credits
+    refundOrderOnce(order, user);
+    return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
+  } finally {
+    inFlightOrderLocks.delete(order.id);
+  }
 });
 
 app.post('/api/orders/:id/tg-code', async (req, res) => {
@@ -1010,6 +1168,7 @@ app.post('/api/orders/:id/tg-code', async (req, res) => {
   try {
     const { code } = await fetchLolzteamLoginCode(srv.url, srv.key, order.providerOrderId);
     order.code = code;
+    order.status = 'DONE';
     saveDb();
     return res.json({ code, order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
   } catch (err) {
@@ -1117,6 +1276,9 @@ app.post('/api/orders/smm', async (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
   if (user.frozen) return res.status(403).json({ error: 'Your wallet is currently frozen' });
+  if (inFlightUserBuys.has(user.id)) {
+    return res.status(409).json({ error: 'Another order is already being processed. Please wait a moment.' });
+  }
 
   const { serviceId, link, quantity } = req.body as { serviceId?: number; link?: string; quantity?: number };
   const cleanLink = String(link || '').trim();
@@ -1137,9 +1299,12 @@ app.post('/api/orders/smm', async (req, res) => {
     return res.status(400).json({ error: 'This service is temporarily unavailable. Please contact support.' });
   }
 
+  inFlightUserBuys.add(user.id);
+  user.balance = Number((user.balance - total).toFixed(2));
+  saveDb();
+
   try {
     const placed = await placeSmmPanelOrder(db.smm.url, db.smm.key, svc.id, cleanLink, qty);
-    user.balance = Number((user.balance - total).toFixed(2));
     const order: ServerOrder = {
       id: `SMM-${Date.now().toString(36).slice(-5).toUpperCase()}`,
       userId: user.id,
@@ -1158,9 +1323,13 @@ app.post('/api/orders/smm', async (req, res) => {
     saveDb();
     return res.json({ order: sanitizeOrderForUser(order), state: getPublicUserPayload(user) });
   } catch (err) {
+    user.balance = Number((user.balance + total).toFixed(2));
+    saveDb();
     return res.status(502).json({
       error: sanitizeUserServiceError(err, 'Unable to place order right now. Please try again later.'),
     });
+  } finally {
+    inFlightUserBuys.delete(user.id);
   }
 });
 
@@ -1169,9 +1338,15 @@ app.post('/api/deposits', async (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
 
-  const { method, amount, utr } = req.body as { method?: string; amount?: number; utr?: string };
+  const { method, amount, utr, screenshot } = req.body as {
+    method?: string;
+    amount?: number;
+    utr?: string;
+    screenshot?: string;
+  };
   const numAmount = Number(amount);
   const cleanUtr = String(utr || '').trim();
+  const canonUtr = normalizeUtr(cleanUtr);
   const cleanMethod = String(method || 'UPI Manual').trim();
 
   const db = getDb();
@@ -1198,15 +1373,25 @@ app.post('/api/deposits', async (req, res) => {
       error: `Maximum deposit for ${methodCfg.label} is ₹${methodCfg.max.toLocaleString('en-IN')}`,
     });
   }
-  if (!cleanUtr || cleanUtr.length < 6) {
+  if (!cleanUtr || canonUtr.length < 6) {
     return res.status(400).json({ error: 'Valid UTR / Transaction ID (min 6 chars) is required' });
   }
 
+  const shotCheck = sanitizeScreenshotDataUrl(screenshot);
+  if (!shotCheck.ok) {
+    return res.status(400).json({ error: shotCheck.error });
+  }
+
+  if (inFlightUtrLocks.has(canonUtr)) {
+    return res.status(409).json({ error: 'This UTR / Transaction ID is already being processed' });
+  }
+
+  const usedAlready = Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr);
   const duplicate = db.deposits.find(
-    (d) => !d.isRedeem && d.status !== 'rejected' && d.utr.toLowerCase() === cleanUtr.toLowerCase(),
+    (d) => !d.isRedeem && d.status !== 'rejected' && normalizeUtr(d.utr) === canonUtr,
   );
-  if (duplicate) {
-    return res.status(409).json({ error: 'This UTR / Transaction ID has already been submitted' });
+  if (usedAlready || duplicate) {
+    return res.status(409).json({ error: 'This UTR / Transaction ID has already been used or submitted' });
   }
 
   const nextId = db.deposits.reduce((m, d) => Math.max(m, d.id), 0) + 1;
@@ -1218,28 +1403,35 @@ app.post('/api/deposits', async (req, res) => {
     utr: cleanUtr,
     status: 'pending',
     date: nowTimestamp(),
+    ...(shotCheck.value ? { screenshot: shotCheck.value } : {}),
   };
   db.deposits.unshift(deposit);
   saveDb();
 
   let autoVerified = false;
-  if (db.imap.enabled && db.imap.email && db.imap.appPassword && db.imap.autoApproveOnSubmit) {
+  const isUsdt = methodCfg.label.toLowerCase().includes('usdt');
+  if (!isUsdt && db.imap.enabled && db.imap.email && db.imap.appPassword && db.imap.autoApproveOnSubmit) {
+    inFlightDepositLocks.add(deposit.id);
+    inFlightUtrLocks.add(canonUtr);
     try {
-      const check = await verifySingleDepositViaImap(db.imap, cleanUtr, numAmount);
+      const excludeUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
+      const check = await verifySingleDepositViaImap(db.imap, cleanUtr, numAmount, excludeUids);
       if (check.matched && deposit.status === 'pending') {
-        deposit.status = 'success';
-        deposit.verifiedBy = 'imap';
-        user.balance = Number((user.balance + deposit.amount).toFixed(2));
-        user.deposited = Number((user.deposited + deposit.amount).toFixed(2));
-        autoVerified = true;
-        saveDb();
+        autoVerified = creditDepositOnce(deposit, 'imap', check.matchedUid);
       }
     } catch {
-      // Leave pending for background sync or admin review if IMAP temporarily fails
+      // Leave pending for repeated background polling or admin review
+    } finally {
+      inFlightDepositLocks.delete(deposit.id);
+      inFlightUtrLocks.delete(canonUtr);
     }
   }
 
-  return res.status(201).json({ deposit, autoVerified, state: getPublicUserPayload(user) });
+  return res.status(201).json({
+    deposit: sanitizeDepositForUser(deposit),
+    autoVerified,
+    state: getPublicUserPayload(user),
+  });
 });
 
 app.post('/api/deposits/:id/verify-imap', async (req, res) => {
@@ -1252,30 +1444,63 @@ app.post('/api/deposits/:id/verify-imap', async (req, res) => {
     return res.status(404).json({ error: 'Deposit not found' });
   }
   if (dep.status === 'success') {
-    return res.json({ verified: true, deposit: dep, state: getPublicUserPayload(user) });
+    return res.json({
+      verified: true,
+      alreadyVerified: true,
+      deposit: sanitizeDepositForUser(dep),
+      state: getPublicUserPayload(user),
+    });
   }
   if (dep.status !== 'pending') {
     return res.status(400).json({ error: 'Only pending deposits can be verified' });
   }
+  if (dep.method.toLowerCase().includes('usdt')) {
+    return res.status(400).json({ error: 'Automatic verification is available for UPI / FamPay deposits only.' });
+  }
   if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) {
-    return res.status(400).json({ error: 'Gmail IMAP auto-verification is not enabled' });
+    return res.status(400).json({
+      error: 'Automatic payment verification is currently disabled. Your deposit will be reviewed shortly.',
+    });
   }
 
-  try {
-    const check = await verifySingleDepositViaImap(db.imap, dep.utr, dep.amount);
-    if (check.matched && dep.status === 'pending') {
-      dep.status = 'success';
-      dep.verifiedBy = 'imap';
-      user.balance = Number((user.balance + dep.amount).toFixed(2));
-      user.deposited = Number((user.deposited + dep.amount).toFixed(2));
-      saveDb();
-      return res.json({ verified: true, deposit: dep, state: getPublicUserPayload(user) });
-    }
-    return res.json({ verified: false, deposit: dep, state: getPublicUserPayload(user) });
-  } catch (err) {
-    return res.status(502).json({
-      error: err instanceof Error ? err.message : 'Failed to check Gmail IMAP inbox',
+  const canonUtr = normalizeUtr(dep.utr);
+  if (inFlightDepositLocks.has(dep.id) || inFlightUtrLocks.has(canonUtr)) {
+    return res.json({
+      verified: false,
+      deposit: sanitizeDepositForUser(dep),
+      state: getPublicUserPayload(user),
     });
+  }
+
+  if (Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr)) {
+    return res.status(409).json({ error: 'This UTR has already been verified and credited.' });
+  }
+
+  inFlightDepositLocks.add(dep.id);
+  inFlightUtrLocks.add(canonUtr);
+  try {
+    const excludeUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
+    const check = await verifySingleDepositViaImap(db.imap, dep.utr, dep.amount, excludeUids);
+    if (check.matched && dep.status === 'pending') {
+      const credited = creditDepositOnce(dep, 'imap', check.matchedUid);
+      return res.json({
+        verified: credited,
+        deposit: sanitizeDepositForUser(dep),
+        state: getPublicUserPayload(user),
+      });
+    }
+    return res.json({
+      verified: false,
+      deposit: sanitizeDepositForUser(dep),
+      state: getPublicUserPayload(user),
+    });
+  } catch {
+    return res.status(502).json({
+      error: 'Unable to verify payment right now. We will keep checking automatically.',
+    });
+  } finally {
+    inFlightDepositLocks.delete(dep.id);
+    inFlightUtrLocks.delete(canonUtr);
   }
 });
 
@@ -1547,14 +1772,19 @@ app.post('/api/admin/deposits/:id/approve', (req, res) => {
   const db = getDb();
   const dep = db.deposits.find((d) => d.id === Number(req.params.id));
   if (!dep || dep.status !== 'pending') return res.status(400).json({ error: 'Deposit is not pending' });
-  dep.status = 'success';
-  const u = db.users.find((x) => x.id === dep.userId);
-  if (u) {
-    u.balance = Number((u.balance + dep.amount).toFixed(2));
-    u.deposited = Number((u.deposited + dep.amount).toFixed(2));
+  if (inFlightDepositLocks.has(dep.id)) {
+    return res.status(409).json({ error: 'Deposit is currently being verified' });
   }
-  saveDb();
-  res.json({ data: getAdminPayload() });
+  inFlightDepositLocks.add(dep.id);
+  try {
+    const credited = creditDepositOnce(dep, 'admin');
+    if (!credited) {
+      return res.status(409).json({ error: 'This UTR has already been credited or deposit is no longer pending' });
+    }
+    return res.json({ data: getAdminPayload() });
+  } finally {
+    inFlightDepositLocks.delete(dep.id);
+  }
 });
 
 app.post('/api/admin/deposits/:id/reject', (req, res) => {
@@ -1580,18 +1810,14 @@ app.put('/api/admin/orders/:id', (req, res) => {
     refund?: boolean;
   };
 
-  const prevStatus = order.status;
-  if (status && ['WAIT_CODE', 'DONE', 'DELIVERED', 'CANCELLED'].includes(status)) {
-    order.status = status;
-  }
   if (typeof code === 'string') order.code = code.trim();
   if (typeof credentials === 'string') order.credentials = credentials.trim();
 
-  if (order.status === 'CANCELLED' && prevStatus !== 'CANCELLED' && refund) {
+  if (status === 'CANCELLED' && refund) {
     const u = db.users.find((x) => x.id === order.userId);
-    if (u) {
-      u.balance = Number((u.balance + order.price).toFixed(2));
-    }
+    refundOrderOnce(order, u);
+  } else if (status && ['WAIT_CODE', 'DONE', 'DELIVERED', 'CANCELLED'].includes(status)) {
+    order.status = status;
   }
 
   saveDb();
@@ -1885,30 +2111,43 @@ async function syncPendingDepositsViaImap(): Promise<{ checked: number; approved
   if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) {
     return { checked: 0, approved: 0 };
   }
-  const pending = db.deposits.filter((d) => d.status === 'pending' && !d.isRedeem);
+  const pending = db.deposits.filter(
+    (d) => d.status === 'pending' && !d.isRedeem && !d.method.toLowerCase().includes('usdt'),
+  );
   if (pending.length === 0) return { checked: 0, approved: 0 };
 
   imapSyncRunning = true;
   try {
-    const emails = await fetchRecentPaymentEmails(db.imap, 40);
+    const emails = await fetchRecentPaymentEmails(db.imap, 55);
     let approved = 0;
+    const usedUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
+
     for (const dep of pending) {
       if (dep.status !== 'pending') continue;
-      const matched = emails.some((e) =>
-        doesEmailMatchPayment(e, dep.utr, dep.amount, db.imap.senderFilter || ''),
+      const canonUtr = normalizeUtr(dep.utr);
+      if (!canonUtr) continue;
+      if (inFlightDepositLocks.has(dep.id) || inFlightUtrLocks.has(canonUtr)) continue;
+      if (Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr)) continue;
+
+      const matchedEmail = emails.find(
+        (e) =>
+          !usedUids.has(e.uid) &&
+          doesEmailMatchPayment(e, dep.utr, dep.amount, db.imap.senderFilter || ''),
       );
-      if (matched) {
-        dep.status = 'success';
-        dep.verifiedBy = 'imap';
-        const u = db.users.find((x) => x.id === dep.userId);
-        if (u) {
-          u.balance = Number((u.balance + dep.amount).toFixed(2));
-          u.deposited = Number((u.deposited + dep.amount).toFixed(2));
+      if (matchedEmail) {
+        inFlightDepositLocks.add(dep.id);
+        inFlightUtrLocks.add(canonUtr);
+        try {
+          if (creditDepositOnce(dep, 'imap', matchedEmail.uid)) {
+            usedUids.add(matchedEmail.uid);
+            approved += 1;
+          }
+        } finally {
+          inFlightDepositLocks.delete(dep.id);
+          inFlightUtrLocks.delete(canonUtr);
         }
-        approved += 1;
       }
     }
-    if (approved > 0) saveDb();
     return { checked: pending.length, approved };
   } finally {
     imapSyncRunning = false;
@@ -1956,7 +2195,7 @@ app.put('/api/admin/imap', (req, res) => {
     db.imap.autoApproveOnSubmit = body.autoApproveOnSubmit;
   }
   if (typeof body.pollIntervalSec === 'number' && !Number.isNaN(body.pollIntervalSec)) {
-    db.imap.pollIntervalSec = Math.min(300, Math.max(20, Math.round(body.pollIntervalSec)));
+    db.imap.pollIntervalSec = Math.min(300, Math.max(15, Math.round(body.pollIntervalSec)));
   }
 
   saveDb();
@@ -2452,6 +2691,41 @@ app.put('/api/admin/settings', (req, res) => {
   res.json({ data: getAdminPayload(), maintenance: getPublicMaintenancePayload() });
 });
 
+app.put('/api/admin/google-auth', (req, res) => {
+  const adminUsername = requireAdmin(req, res);
+  if (!adminUsername) return;
+  const db = getDb();
+  const sub = db.admins.find((a) => a.username === adminUsername);
+  if (sub && !sub.p_settings) {
+    return res.status(403).json({ error: 'Settings permission required for Google Login configuration' });
+  }
+
+  const body = (req.body || {}) as Record<string, unknown>;
+  if (typeof body.enabled === 'boolean') {
+    db.googleAuth.enabled = body.enabled;
+  }
+  if (typeof body.apiKey === 'string') {
+    db.googleAuth.apiKey = body.apiKey.trim().slice(0, 200);
+  }
+  if (typeof body.authDomain === 'string') {
+    const clean = body.authDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '').slice(0, 200);
+    db.googleAuth.authDomain = clean;
+  }
+  if (typeof body.projectId === 'string') {
+    const clean = body.projectId.trim().slice(0, 120);
+    if (clean && !/^[a-z0-9-]+$/i.test(clean)) {
+      return res.status(400).json({ error: 'Invalid Firebase Project ID format' });
+    }
+    db.googleAuth.projectId = clean;
+  }
+  if (typeof body.appId === 'string') {
+    db.googleAuth.appId = body.appId.trim().slice(0, 200);
+  }
+
+  saveDb();
+  return res.json({ data: getAdminPayload(), googleAuth: getPublicGoogleAuthConfig() });
+});
+
 app.put('/api/admin/github-backup', (req, res) => {
   const adminUsername = requireAdmin(req, res);
   if (!adminUsername) return;
@@ -2891,7 +3165,7 @@ async function startServer() {
   setInterval(() => {
     const db = getDb();
     if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) return;
-    const intervalMs = Math.max(20, Number(db.imap.pollIntervalSec) || 30) * 1000;
+    const intervalMs = Math.max(15, Number(db.imap.pollIntervalSec) || 20) * 1000;
     if (Date.now() - lastImapRun < intervalMs) return;
     lastImapRun = Date.now();
     void syncPendingDepositsViaImap().catch(() => {});

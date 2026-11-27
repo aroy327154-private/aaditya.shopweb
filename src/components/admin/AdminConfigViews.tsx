@@ -10,6 +10,7 @@ import {
   Download,
   ExternalLink,
   GitBranch,
+  KeyRound,
   Mail,
   Plus,
   QrCode,
@@ -613,7 +614,7 @@ export const AdminPaymentsView: React.FC = () => {
             <label className="text-xs text-slate-500">Background Check Interval (sec)</label>
             <input
               type="number"
-              min={20}
+              min={15}
               max={300}
               value={imapInterval}
               onChange={(e) => setImapInterval(e.target.value)}
@@ -648,7 +649,7 @@ export const AdminPaymentsView: React.FC = () => {
                 ...(imapPass.trim() ? { appPassword: imapPass.trim() } : {}),
                 senderFilter: imapFilter.trim(),
                 autoApproveOnSubmit: imapAutoOnSubmit,
-                pollIntervalSec: Math.max(20, parseInt(imapInterval, 10) || 30),
+                pollIntervalSec: Math.max(15, parseInt(imapInterval, 10) || 20),
               });
               setImapPass('');
             }}
@@ -1941,6 +1942,7 @@ export const AdminSettingsView: React.FC = () => {
   const {
     adminData,
     saveStoreSettings,
+    saveGoogleAuthSettings,
     saveGithubBackupSettings,
     runGithubBackupNow,
     downloadFullBackup,
@@ -1962,6 +1964,16 @@ export const AdminSettingsView: React.FC = () => {
       'Scheduled maintenance is currently in progress. All user balances and orders are 100% safe.',
   );
   const [maintEta, setMaintEta] = useState(adminData?.settings.maintenanceEta || 'Back online shortly');
+
+  // Google Login ON/OFF & Firebase Keys state
+  const [googleEnabled, setGoogleEnabled] = useState(
+    adminData?.googleAuth ? Boolean(adminData.googleAuth.enabled) : true,
+  );
+  const [googleApiKey, setGoogleApiKey] = useState(adminData?.googleAuth?.apiKey || '');
+  const [googleAuthDomain, setGoogleAuthDomain] = useState(adminData?.googleAuth?.authDomain || '');
+  const [googleProjectId, setGoogleProjectId] = useState(adminData?.googleAuth?.projectId || '');
+  const [googleAppId, setGoogleAppId] = useState(adminData?.googleAuth?.appId || '');
+  const [savingGoogle, setSavingGoogle] = useState(false);
 
   // Automatic GitHub Backup state
   const [ghEnabled, setGhEnabled] = useState(Boolean(adminData?.githubBackup?.enabled));
@@ -1994,6 +2006,15 @@ export const AdminSettingsView: React.FC = () => {
   }, [adminData?.settings]);
 
   useEffect(() => {
+    if (!adminData?.googleAuth) return;
+    setGoogleEnabled(Boolean(adminData.googleAuth.enabled));
+    setGoogleApiKey(adminData.googleAuth.apiKey || '');
+    setGoogleAuthDomain(adminData.googleAuth.authDomain || '');
+    setGoogleProjectId(adminData.googleAuth.projectId || '');
+    setGoogleAppId(adminData.googleAuth.appId || '');
+  }, [adminData?.googleAuth]);
+
+  useEffect(() => {
     if (!adminData?.githubBackup) return;
     setGhEnabled(Boolean(adminData.githubBackup.enabled));
     setGhRepo(adminData.githubBackup.repo || '');
@@ -2018,6 +2039,22 @@ export const AdminSettingsView: React.FC = () => {
     });
   };
 
+  const handleSaveGoogleAuth = async (overrideEnabled?: boolean) => {
+    const nextEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : googleEnabled;
+    setSavingGoogle(true);
+    try {
+      await saveGoogleAuthSettings({
+        enabled: nextEnabled,
+        apiKey: googleApiKey.trim(),
+        authDomain: googleAuthDomain.trim(),
+        projectId: googleProjectId.trim(),
+        appId: googleAppId.trim(),
+      });
+    } finally {
+      setSavingGoogle(false);
+    }
+  };
+
   const handleSaveGithubConfig = async () => {
     setSavingGh(true);
     try {
@@ -2030,6 +2067,7 @@ export const AdminSettingsView: React.FC = () => {
         ...(ghToken.trim() ? { token: ghToken.trim() } : {}),
       });
       if (ok) setGhToken('');
+      return ok;
     } finally {
       setSavingGh(false);
     }
@@ -2038,6 +2076,27 @@ export const AdminSettingsView: React.FC = () => {
   const handleRunGithubBackup = async () => {
     setRunningGh(true);
     try {
+      // Auto-save any unsaved repo/branch/path/interval/token changes first
+      const hasDraftChanges =
+        ghToken.trim().length > 0 ||
+        ghRepo.trim() !== (gh?.repo || '') ||
+        (ghBranch.trim() || 'main') !== (gh?.branch || 'main') ||
+        (ghPath.trim() || 'backups/aadityatg-store-latest-backup.json') !==
+          (gh?.filePath || 'backups/aadityatg-store-latest-backup.json') ||
+        (Math.max(5, Math.min(1440, parseInt(ghInterval, 10) || 120))) !== (gh?.intervalMinutes || 120);
+
+      if (hasDraftChanges) {
+        const saved = await saveGithubBackupSettings({
+          enabled: ghEnabled,
+          repo: ghRepo.trim(),
+          branch: ghBranch.trim() || 'main',
+          filePath: ghPath.trim() || 'backups/aadityatg-store-latest-backup.json',
+          intervalMinutes: Math.max(5, Math.min(1440, parseInt(ghInterval, 10) || 120)),
+          ...(ghToken.trim() ? { token: ghToken.trim() } : {}),
+        });
+        if (!saved) return;
+        setGhToken('');
+      }
       await runGithubBackupNow();
     } finally {
       setRunningGh(false);
@@ -2061,12 +2120,26 @@ export const AdminSettingsView: React.FC = () => {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as Record<string, unknown>;
-      const inner =
+      let inner: Record<string, unknown> = parsed;
+      if (
+        parsed.format === 'aaditya-tg-store-full-backup-encoded' &&
+        typeof parsed.payloadBase64 === 'string'
+      ) {
+        const binary = atob(parsed.payloadBase64);
+        const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+        const decodedText = new TextDecoder().decode(bytes);
+        const decoded = JSON.parse(decodedText) as Record<string, unknown>;
+        inner =
+          decoded.db && typeof decoded.db === 'object'
+            ? (decoded.db as Record<string, unknown>)
+            : decoded;
+      } else if (
         parsed.format === 'aaditya-tg-store-full-backup' &&
         parsed.db &&
         typeof parsed.db === 'object'
-          ? (parsed.db as Record<string, unknown>)
-          : parsed;
+      ) {
+        inner = parsed.db as Record<string, unknown>;
+      }
 
       if (
         !Array.isArray(inner.users) ||
@@ -2097,7 +2170,7 @@ export const AdminSettingsView: React.FC = () => {
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Settings</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Maintenance mode, automatic 2-hour GitHub backup, store links, and full database restore
+          Maintenance mode, Google login &amp; keys, automatic 2-hour GitHub backup, store links, and full database restore
         </p>
       </div>
 
@@ -2198,6 +2271,111 @@ export const AdminSettingsView: React.FC = () => {
               className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
             >
               Save Maintenance Settings
+            </button>
+          </div>
+        </div>
+
+        {/* Google Login ON/OFF & Firebase/Google Keys Card */}
+        <div className="admin-card rounded-2xl p-5 sm:p-6 space-y-4 md:col-span-2">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                  googleEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-bold text-base text-slate-900">
+                  Google Login (ON / OFF &amp; Keys)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Turn Google Sign-In on or off on the login/signup page and configure your Firebase / Google Web Auth keys.
+                </p>
+              </div>
+            </div>
+            <PaymentToggle
+              label="Google Login"
+              checked={googleEnabled}
+              onChange={(next) => {
+                setGoogleEnabled(next);
+                void handleSaveGoogleAuth(next);
+              }}
+            />
+          </div>
+
+          <div
+            className={`rounded-xl px-3.5 py-2.5 text-xs font-medium flex items-center gap-2 ${
+              googleEnabled
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                : 'bg-slate-50 border border-slate-200 text-slate-700'
+            }`}
+          >
+            {googleEnabled ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Google Sign-In button is VISIBLE and enabled for users.</span>
+              </>
+            ) : (
+              <>
+                <ShieldAlert className="w-4 h-4 text-slate-500 shrink-0" />
+                <span>Google Sign-In is OFF — users can only sign in with Email &amp; Password.</span>
+              </>
+            )}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500">Firebase / Google Web API Key</label>
+              <input
+                value={googleApiKey}
+                onChange={(e) => setGoogleApiKey(e.target.value)}
+                placeholder="AIzaSy... (leave blank to use default project config)"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Auth Domain</label>
+              <input
+                value={googleAuthDomain}
+                onChange={(e) => setGoogleAuthDomain(e.target.value)}
+                placeholder="your-project.firebaseapp.com"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Project ID (for Server Token Verification)</label>
+              <input
+                value={googleProjectId}
+                onChange={(e) => setGoogleProjectId(e.target.value)}
+                placeholder="your-firebase-project-id"
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Firebase App ID</label>
+              <input
+                value={googleAppId}
+                onChange={(e) => setGoogleAppId(e.target.value)}
+                placeholder="1:1234567890:web:abcdef..."
+                className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 text-xs text-slate-600 leading-relaxed">
+            Leave keys blank to use the built-in Firebase project config, or paste your own Firebase Web App keys above (make sure your custom domain is added under Firebase Console → Authentication → Authorized Domains).
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={savingGoogle}
+              onClick={() => void handleSaveGoogleAuth()}
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-semibold transition-colors"
+            >
+              {savingGoogle ? 'Saving…' : 'Save Google Login Settings'}
             </button>
           </div>
         </div>
