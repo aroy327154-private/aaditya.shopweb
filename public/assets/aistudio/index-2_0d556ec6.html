@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Aaditya TG Store</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: {50:'#eff6ff',100:'#dbeafe',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af'}
+      }
+    }
+  }
+}
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  .page { display: none !important; }
+  .page.active { display: block !important; animation: pageIn .4s cubic-bezier(.2,.8,.2,1); }
+  @keyframes pageIn {
+    from { opacity:0; transform:translateY(16px) scale(.98); }
+    to { opacity:1; transform:none; }
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+  @keyframes pulse-glow { 0%,100%{box-shadow:0 0 20px rgba(99,102,241,.3)} 50%{box-shadow:0 0 40px rgba(99,102,241,.55)} }
+  @keyframes gradient-shift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+  @keyframes scale-in { from{opacity:0;transform:scale(.85)} to{opacity:1;transform:scale(1)} }
+  @keyframes slide-up { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:none} }
+
+  .bottom-nav { backdrop-filter: blur(24px) saturate(180%); background: rgba(255,255,255,.85); }
+  .card { background:#fff; border-radius:20px; border:1px solid #f0f0f5; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .btn-primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7);
+    background-size: 200% 200%;
+    animation: gradient-shift 4s ease infinite;
+    color:#fff; border-radius:16px; font-weight:700; transition:all .2s;
+    box-shadow: 0 8px 24px rgba(99,102,241,.35);
+  }
+  .btn-primary:hover { transform:translateY(-2px); box-shadow:0 12px 32px rgba(99,102,241,.45); }
+  .btn-primary:active { transform:scale(.97); }
+  .btn-primary:disabled { opacity:.5; }
+  .input { width:100%; padding:14px 16px; border-radius:14px; border:1.5px solid #e5e7eb; outline:none; font-size:15px; transition:all .2s; background:rgba(255,255,255,.8); }
+  .input:focus { border-color:#8b5cf6; box-shadow:0 0 0 4px rgba(139,92,246,.12); }
+
+  .toast { position:fixed; top:20px; left:50%; transform:translateX(-50%) translateY(-100px); z-index:9999; padding:12px 24px; border-radius:99px; font-weight:600; font-size:14px; transition:transform .35s cubic-bezier(.2,.8,.2,1); white-space:nowrap; max-width:90vw; backdrop-filter:blur(12px); }
+  .toast.show { transform:translateX(-50%) translateY(0); }
+  .toast.ok { background:rgba(236,253,245,.95); color:#059669; border:1px solid #a7f3d0; }
+  .toast.err { background:rgba(254,242,242,.95); color:#dc2626; border:1px solid #fecaca; }
+
+  ::-webkit-scrollbar { width:0; height:0; }
+  .chip { padding:8px 18px; border-radius:99px; font-size:14px; font-weight:500; background:#f3f4f6; color:#374151; cursor:pointer; white-space:nowrap; transition:all .15s; }
+  .chip.on { background:linear-gradient(135deg,#16a34a,#22c55e); color:#fff; }
+
+  /* ===== LANDING GLASS ===== */
+  .landing-bg {
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e, #1a1a4e);
+    background-size: 300% 300%;
+    animation: gradient-shift 12s ease infinite;
+    position: relative;
+    overflow: hidden;
+  }
+  .landing-bg::before {
+    content:''; position:absolute; inset:0;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(99,102,241,.35), transparent),
+      radial-gradient(ellipse 60% 40% at 80% 20%, rgba(168,85,247,.3), transparent),
+      radial-gradient(ellipse 50% 50% at 50% 80%, rgba(59,130,246,.25), transparent),
+      radial-gradient(ellipse 40% 30% at 70% 70%, rgba(236,72,153,.15), transparent);
+    pointer-events:none;
+  }
+  .orb {
+    position:absolute; border-radius:50%; filter:blur(60px); opacity:.5; pointer-events:none;
+    animation: float 8s ease-in-out infinite;
+  }
+  .glass-card {
+    background: rgba(255,255,255,.08);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 24px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  }
+  .glass-btn {
+    background: rgba(255,255,255,.12);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,.2);
+    color: #fff;
+    border-radius: 16px;
+    font-weight: 600;
+    transition: all .25s;
+  }
+  .glass-btn:hover { background: rgba(255,255,255,.2); transform: translateY(-2px); }
+  .glass-btn:active { transform: scale(.97); }
+  .feature-glass {
+    background: rgba(255,255,255,.07);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 20px;
+    transition: all .3s cubic-bezier(.2,.8,.2,1);
+    animation: slide-up .6s ease both;
+  }
+  .feature-glass:hover { background: rgba(255,255,255,.12); transform: translateY(-4px); border-color: rgba(255,255,255,.25); }
+  .logo-glow {
+    animation: pulse-glow 3s ease-in-out infinite, scale-in .6s ease both;
+  }
+  .stagger-1 { animation-delay: .1s; }
+  .stagger-2 { animation-delay: .2s; }
+  .stagger-3 { animation-delay: .3s; }
+  .stagger-4 { animation-delay: .4s; }
+  .stagger-5 { animation-delay: .5s; }
+  .stagger-6 { animation-delay: .6s; }
+
+  /* ===== WHITE + GREEN THEME ===== */
+  :root {
+    --green: #16a34a;
+    --green-dark: #15803d;
+    --green-light: #dcfce7;
+    --green-mid: #22c55e;
+  }
+  body.theme-light { background: #f0fdf4; }
+
+  /* Snowfall */
+  .snow-container {
+    position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden;
+  }
+  .snowflake {
+    position: absolute; top: -10px; color: rgba(22,163,74,.35);
+    font-size: 12px; animation: snowfall linear infinite;
+    user-select: none;
+  }
+  @keyframes snowfall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(100vh) rotate(360deg); opacity: 0.2; }
+  }
+
+  /* Landing white-green */
+  .landing-bg {
+    background: linear-gradient(160deg, #f0fdf4 0%, #ecfdf5 30%, #d1fae5 60%, #f0fdf4 100%) !important;
+    background-size: 200% 200% !important;
+    animation: gradient-shift 10s ease infinite !important;
+  }
+  .landing-bg::before {
+    background:
+      radial-gradient(ellipse 70% 50% at 15% 30%, rgba(34,197,94,.18), transparent),
+      radial-gradient(ellipse 50% 40% at 85% 20%, rgba(16,185,129,.15), transparent),
+      radial-gradient(ellipse 40% 40% at 50% 80%, rgba(74,222,128,.12), transparent) !important;
+  }
+  .orb { opacity: .25 !important; }
+  .glass-card {
+    background: rgba(255,255,255,.75) !important;
+    backdrop-filter: blur(20px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+    border: 1px solid rgba(22,163,74,.12) !important;
+    box-shadow: 0 8px 32px rgba(22,163,74,.08) !important;
+  }
+  .glass-btn {
+    background: rgba(255,255,255,.7) !important;
+    border: 1.5px solid rgba(22,163,74,.25) !important;
+    color: #15803d !important;
+  }
+  .glass-btn:hover { background: rgba(220,252,231,.9) !important; }
+  .feature-glass {
+    background: rgba(255,255,255,.7) !important;
+    border: 1px solid rgba(22,163,74,.1) !important;
+  }
+  .feature-glass:hover { background: rgba(255,255,255,.9) !important; border-color: rgba(22,163,74,.25) !important; }
+  .btn-primary {
+    background: linear-gradient(135deg, #16a34a, #22c55e, #4ade80) !important;
+    background-size: 200% 200% !important;
+    box-shadow: 0 8px 24px rgba(22,163,74,.3) !important;
+  }
+  .btn-primary:hover { box-shadow: 0 12px 32px rgba(22,163,74,.4) !important; }
+  .logo-glow {
+    animation: pulse-glow-green 3s ease-in-out infinite, scale-in .6s ease both !important;
+  }
+  @keyframes pulse-glow-green {
+    0%,100%{box-shadow:0 0 20px rgba(22,163,74,.3)}
+    50%{box-shadow:0 0 40px rgba(22,163,74,.5)}
+  }
+
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen pb-24 theme-light">
+<div class="snow-container" id="snow" aria-hidden="true"></div>
+<script>
+(function(){
+  var c=document.getElementById('snow'); if(!c) return;
+  var f=['❄','❅','❆','•'];
+  for(var i=0;i<35;i++){
+    var s=document.createElement('div');
+    s.className='snowflake';
+    s.textContent=f[i%f.length];
+    s.style.left=(Math.random()*100)+'vw';
+    s.style.fontSize=(8+Math.random()*12)+'px';
+    s.style.animationDuration=(7+Math.random()*10)+'s';
+    s.style.animationDelay=(Math.random()*6)+'s';
+    s.style.opacity=String(0.25+Math.random()*0.35);
+    c.appendChild(s);
+  }
+})();
+</script>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- ===================== AUTH SCREENS ===================== -->
+<div id="auth-screens">
+  <!-- Landing -->
+  <div id="page-landing" class="page active min-h-screen flex flex-col landing-bg">
+    <!-- Floating orbs -->
+    <div class="orb" style="width:300px;height:300px;background:#22c55e;top:-80px;left:-60px;animation-delay:0s"></div>
+    <div class="orb" style="width:250px;height:250px;background:#4ade80;bottom:10%;right:-40px;animation-delay:2s"></div>
+    <div class="orb" style="width:180px;height:180px;background:#86efac;top:40%;left:50%;animation-delay:4s"></div>
+
+    <!-- Header -->
+    <header class="relative z-10 px-5 py-5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-green-600 text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-green-200">A</div>
+        <span class="font-bold text-lg text-green-800 tracking-tight">Aaditya TG Store</span>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <div class="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center py-10">
+      <div class="w-[88px] h-[88px] rounded-[28px] bg-gradient-to-br from-green-500 via-emerald-500 to-green-400 text-white flex items-center justify-center text-4xl font-black mb-7 logo-glow shadow-2xl">A</div>
+
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-card text-green-700/80 text-xs font-medium mb-5 stagger-1" style="animation:slide-up .5s ease both">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+        Trusted by 10,000+ users
+      </div>
+
+      <h1 class="text-[34px] sm:text-4xl font-black tracking-tight leading-[1.15] text-gray-900 stagger-2" style="animation:slide-up .5s ease both">
+        Premium Accounts<br>
+        <span class="bg-gradient-to-r from-green-600 via-emerald-500 to-green-400 bg-clip-text text-transparent">& OTP Services</span>
+      </h1>
+      <p class="text-gray-500 mt-4 max-w-sm text-[15px] leading-relaxed stagger-3" style="animation:slide-up .5s ease both">
+        Buy high-quality Telegram accounts, WhatsApp numbers, App OTPs & digital products — instantly.
+      </p>
+
+      <!-- Buttons: only Register + Login -->
+      <div class="mt-9 w-full max-w-[280px] space-y-3 stagger-4" style="animation:slide-up .5s ease both">
+        <button onclick="showPage('register')" class="btn-primary w-full py-[15px] text-[16px] tracking-wide">Register</button>
+        <button onclick="showPage('login')" class="glass-btn w-full py-[15px] text-[16px]">Login</button>
+      </div>
+
+      <!-- Feature cards -->
+      <div class="mt-12 grid grid-cols-2 gap-3 w-full max-w-sm text-left">
+        <div class="feature-glass p-4 stagger-1">
+          <div class="text-2xl mb-2">✈️</div>
+          <div class="font-semibold text-sm text-gray-800">TG Accounts</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">Ready-made</div>
+        </div>
+        <div class="feature-glass p-4 stagger-2">
+          <div class="text-2xl mb-2">💬</div>
+          <div class="font-semibold text-sm text-gray-800">WhatsApp</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">Fresh numbers</div>
+        </div>
+        <div class="feature-glass p-4 stagger-3">
+          <div class="text-2xl mb-2">🔐</div>
+          <div class="font-semibold text-sm text-gray-800">All App OTP</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">100+ apps</div>
+        </div>
+        <div class="feature-glass p-4 stagger-4">
+          <div class="text-2xl mb-2">🛒</div>
+          <div class="font-semibold text-sm text-gray-800">Digital Shop</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">Instant</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login -->
+  <div id="page-login" class="page min-h-screen flex items-center justify-center px-5 py-10 landing-bg">
+    <div class="orb" style="width:280px;height:280px;background:#22c55e;top:-60px;right:-40px"></div>
+    <div class="orb" style="width:200px;height:200px;background:#4ade80;bottom:5%;left:-30px;animation-delay:3s"></div>
+    <div class="relative z-10 w-full max-w-md">
+      <div class="text-center mb-8">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 via-emerald-500 to-green-400 text-white flex items-center justify-center font-black text-2xl mx-auto mb-4 logo-glow shadow-xl">A</div>
+        <h1 class="text-2xl font-bold text-gray-900">Welcome back</h1>
+        <p class="text-gray-500 text-sm mt-1">Login to your account</p>
+      </div>
+      <div class="glass-card p-6 space-y-4">
+        <div id="login-error" class="hidden px-4 py-3 rounded-xl bg-red-50 text-red-600 text-sm border border-red-100"></div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+          <input type="email" id="login-email" class="input"  placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+          <input type="password" id="login-pass" class="input"  placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button onclick="doLogin()" class="btn-primary w-full py-3.5 text-[15px]">Login</button>
+        <button onclick="quickTestLogin()" class="w-full py-3 rounded-2xl text-[14px] font-semibold" style="background:#dcfce7;border:1px solid #86efac;color:#15803d">⚡ Quick Test Login</button>
+        <p class="text-center text-xs text-gray-400 mt-1">test@aaditya.com / test123</p>
+        <p class="text-center text-sm text-gray-500">Don't have an account? <a href="javascript:void(0)" onclick="showPage('register')" class="text-green-600 font-semibold">Register</a></p>
+      </div>
+      <p class="text-center text-xs text-gray-400 mt-6"><a href="javascript:void(0)" onclick="showPage('landing')" class="hover:text-green-600 transition">← Back to home</a></p>
+    </div>
+  </div>
+
+  <!-- Register -->
+  <div id="page-register" class="page min-h-screen flex items-center justify-center px-5 py-10 landing-bg">
+    <div class="orb" style="width:260px;height:260px;background:#22c55e;top:-50px;left:-40px"></div>
+    <div class="orb" style="width:220px;height:220px;background:#4ade80;bottom:8%;right:-50px;animation-delay:2s"></div>
+    <div class="relative z-10 w-full max-w-md">
+      <div class="text-center mb-8">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 via-emerald-500 to-green-400 text-white flex items-center justify-center font-black text-2xl mx-auto mb-4 logo-glow shadow-xl">A</div>
+        <h1 class="text-2xl font-bold text-gray-900">Create account</h1>
+        <p class="text-gray-500 text-sm mt-1">Join Aaditya TG Store</p>
+      </div>
+      <div class="glass-card p-6 space-y-4">
+        <div id="reg-error" class="hidden px-4 py-3 rounded-xl bg-red-50 text-red-600 text-sm border border-red-100"></div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">Full Name</label>
+          <input type="text" id="reg-name" class="input"  placeholder="Your name">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+          <input type="email" id="reg-email" class="input"  placeholder="you@example.com">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+          <input type="password" id="reg-pass" class="input"  placeholder="Min 6 characters">
+        </div>
+        <button onclick="doRegister()" class="btn-primary w-full py-3.5 text-[15px]">Register</button>
+        <p class="text-center text-sm text-gray-500">Already have an account? <a href="javascript:void(0)" onclick="showPage('login')" class="text-green-600 font-semibold">Login</a></p>
+      </div>
+      <p class="text-center text-xs text-gray-400 mt-6"><a href="javascript:void(0)" onclick="showPage('landing')" class="hover:text-green-600 transition">← Back to home</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP (after login) ===================== -->
+<div id="app" class="hidden">
+  <!-- HOME -->
+  <div id="page-home" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-green-600 text-white flex items-center justify-center font-bold">A</div>
+        <div>
+          <div class="font-bold text-[15px] leading-tight">Aaditya TG Store</div>
+          <div class="text-xs text-gray-400" id="home-greeting">Hello</div>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="showPage('support')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center relative">
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <span id="notif-dot" class="hidden absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">1</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Wallet card -->
+    <div class="mx-5 mt-2 rounded-2xl bg-gradient-to-br from-green-600 to-emerald-600 text-white p-5 shadow-lg shadow-green-100">
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="text-green-100 text-sm">Wallet Balance</div>
+          <div class="text-3xl font-extrabold mt-1" id="bal-home">₹0.00</div>
+        </div>
+        <div class="bg-white/20 rounded-xl px-3 py-1 text-xs font-semibold" id="tier-badge">Bronze</div>
+      </div>
+      <div class="mt-5 flex gap-3">
+        <button onclick="showPage('deposit')" class="flex-1 py-3 rounded-xl bg-white text-green-700 font-semibold text-sm">+ Add Funds</button>
+        <button onclick="showPage('store')" class="flex-1 py-3 rounded-xl bg-white/20 font-semibold text-sm">Store</button>
+      </div>
+    </div>
+
+    <!-- Quick tiles -->
+    <div class="px-5 mt-5 grid grid-cols-2 gap-3">
+      <button onclick="openServer(1)" class="card p-4 text-left active:scale-[.97] transition">
+        <div class="flex justify-between items-start mb-3">
+          <div class="w-11 h-11 rounded-xl bg-green-50 text-2xl flex items-center justify-center">✈️</div>
+          <span class="text-[10px] font-bold bg-green-50 text-green-700 px-2 py-0.5 rounded-full">LOW PRICE</span>
+        </div>
+        <div class="font-bold text-[15px]">TG Accounts</div>
+        <div class="text-xs text-gray-400 mt-0.5">Server 1 · Ready-made</div>
+      </button>
+      <button onclick="openServer(2)" class="card p-4 text-left active:scale-[.97] transition">
+        <div class="flex justify-between items-start mb-3">
+          <div class="w-11 h-11 rounded-xl bg-green-50 text-2xl flex items-center justify-center">💬</div>
+          <span class="text-[10px] font-bold bg-green-50 text-green-700 px-2 py-0.5 rounded-full">FRESH</span>
+        </div>
+        <div class="font-bold text-[15px]">WhatsApp</div>
+        <div class="text-xs text-gray-400 mt-0.5">Server 2 · OTP</div>
+      </button>
+      <button onclick="openServer(3)" class="card p-4 text-left active:scale-[.97] transition">
+        <div class="flex justify-between items-start mb-3">
+          <div class="w-11 h-11 rounded-xl bg-purple-50 text-2xl flex items-center justify-center">🔐</div>
+          <span class="text-[10px] font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">ALL APPS</span>
+        </div>
+        <div class="font-bold text-[15px]">App OTP</div>
+        <div class="text-xs text-gray-400 mt-0.5">Server 3 · 100+ apps</div>
+      </button>
+      <button onclick="showPage('digital')" class="card p-4 text-left active:scale-[.97] transition">
+        <div class="flex justify-between items-start mb-3">
+          <div class="w-11 h-11 rounded-xl bg-orange-50 text-2xl flex items-center justify-center">🛒</div>
+          <span class="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full">INSTANT</span>
+        </div>
+        <div class="font-bold text-[15px]">Digital Shop</div>
+        <div class="text-xs text-gray-400 mt-0.5">Tools & files</div>
+      </button>
+    </div>
+
+    <!-- More actions -->
+    <div class="px-5 mt-4 grid grid-cols-3 gap-3">
+      <button onclick="showPage('smm')" class="card p-3 text-center">
+        <div class="text-xl mb-1">🚀</div>
+        <div class="text-xs font-semibold">SMM</div>
+      </button>
+      <button onclick="showPage('redeem')" class="card p-3 text-center">
+        <div class="text-xl mb-1">🎁</div>
+        <div class="text-xs font-semibold">Redeem</div>
+      </button>
+      <button onclick="showPage('orders')" class="card p-3 text-center">
+        <div class="text-xl mb-1">📦</div>
+        <div class="text-xs font-semibold">Orders</div>
+      </button>
+    </div>
+
+    <!-- Recent orders -->
+    <div class="px-5 mt-6">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="font-bold text-[15px]">Recent Orders</h2>
+        <button onclick="showPage('orders')" class="text-sm text-green-600 font-medium">See all</button>
+      </div>
+      <div id="recent-orders" class="card overflow-hidden"></div>
+    </div>
+  </div>
+
+  <!-- STORE -->
+  <div id="page-store" class="page">
+    <div class="px-5 pt-5 pb-3">
+      <h1 class="text-2xl font-bold">Store</h1>
+      <p class="text-gray-500 text-sm mt-0.5">Choose a service</p>
+    </div>
+    <div class="px-5 space-y-3">
+      <button onclick="openServer(1)" class="card p-5 w-full text-left flex gap-4 items-center active:scale-[.98] transition">
+        <div class="w-14 h-14 rounded-2xl bg-green-50 text-3xl flex items-center justify-center shrink-0">✈️</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold">Server 1 – TG Accounts</div>
+          <div class="text-sm text-gray-400 mt-0.5">Cheap ready-made Telegram accounts</div>
+        </div>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <button onclick="openServer(2)" class="card p-5 w-full text-left flex gap-4 items-center active:scale-[.98] transition">
+        <div class="w-14 h-14 rounded-2xl bg-green-50 text-3xl flex items-center justify-center shrink-0">💬</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold">Server 2 – WhatsApp</div>
+          <div class="text-sm text-gray-400 mt-0.5">Fresh WhatsApp numbers + OTP</div>
+        </div>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <button onclick="openServer(3)" class="card p-5 w-full text-left flex gap-4 items-center active:scale-[.98] transition">
+        <div class="w-14 h-14 rounded-2xl bg-purple-50 text-3xl flex items-center justify-center shrink-0">🔐</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold">Server 3 – All App OTP</div>
+          <div class="text-sm text-gray-400 mt-0.5">Instagram, Gmail, FB & 100+ apps</div>
+        </div>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <button onclick="showPage('digital')" class="card p-5 w-full text-left flex gap-4 items-center active:scale-[.98] transition">
+        <div class="w-14 h-14 rounded-2xl bg-orange-50 text-3xl flex items-center justify-center shrink-0">🛒</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold">Digital Shop</div>
+          <div class="text-sm text-gray-400 mt-0.5">Tools, files, scripts – instant</div>
+        </div>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <button onclick="showPage('smm')" class="card p-5 w-full text-left flex gap-4 items-center active:scale-[.98] transition">
+        <div class="w-14 h-14 rounded-2xl bg-pink-50 text-3xl flex items-center justify-center shrink-0">🚀</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold">SMM Services</div>
+          <div class="text-sm text-gray-400 mt-0.5">Followers, likes, views & more</div>
+        </div>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- SERVER COUNTRIES (dynamic) -->
+  <div id="page-countries" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('store')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div>
+        <h1 class="text-xl font-bold" id="countries-title">Countries</h1>
+        <p class="text-gray-500 text-xs" id="countries-sub">Select a country</p>
+      </div>
+    </div>
+    <div class="px-5 mb-3">
+      <input type="text" id="country-search" class="input" placeholder="Search country..." oninput="filterCountries()">
+    </div>
+    <div id="countries-list" class="px-5 space-y-2 pb-4"></div>
+  </div>
+
+  <!-- BUY CONFIRM -->
+  <div id="page-buy" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('countries')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h1 class="text-xl font-bold">Confirm Purchase</h1>
+    </div>
+    <div class="px-5">
+      <div class="card p-5 space-y-4">
+        <div class="flex justify-between text-sm"><span class="text-gray-500">Service</span><span class="font-medium" id="buy-service">—</span></div>
+        <div class="flex justify-between text-sm"><span class="text-gray-500">Country</span><span class="font-medium" id="buy-country">—</span></div>
+        <div class="flex justify-between text-sm"><span class="text-gray-500">Price</span><span class="font-bold text-lg text-green-600" id="buy-price">₹0</span></div>
+        <div class="flex justify-between text-sm"><span class="text-gray-500">Your Balance</span><span class="font-medium" id="buy-bal">₹0</span></div>
+        <div class="border-t border-gray-100 pt-4">
+          <button onclick="confirmBuy()" id="buy-btn" class="btn-primary w-full py-3.5">Confirm & Buy</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 text-center mt-4">After purchase you will receive the number / account details here and in Orders.</p>
+    </div>
+  </div>
+
+  <!-- ORDER RESULT (OTP waiting) -->
+  <div id="page-order-result" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('orders')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h1 class="text-xl font-bold">Order Details</h1>
+    </div>
+    <div class="px-5">
+      <div class="card p-5 space-y-4" id="order-detail-card"></div>
+      <div class="mt-4 flex gap-3">
+        <button onclick="pollOTP()" id="btn-check-otp" class="btn-primary flex-1 py-3 text-sm">Check OTP</button>
+        <button onclick="cancelOrder()" id="btn-cancel-order" class="flex-1 py-3 rounded-xl border border-red-200 text-red-600 font-semibold text-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEPOSIT -->
+  <div id="page-deposit" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('home')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div>
+        <h1 class="text-xl font-bold">Add Funds</h1>
+        <p class="text-gray-500 text-xs">Choose payment method</p>
+      </div>
+    </div>
+    <div class="px-5 space-y-3">
+      <button onclick="selectPay('upi')" class="card p-4 w-full text-left flex gap-4 items-center">
+        <div class="w-12 h-12 rounded-xl bg-green-50 text-2xl flex items-center justify-center">₹</div>
+        <div class="flex-1">
+          <div class="font-bold text-[15px]">UPI Manual</div>
+          <div class="text-xs text-gray-400">Pay via any UPI app · Upload screenshot</div>
+        </div>
+      </button>
+      <button onclick="selectPay('fampay')" class="card p-4 w-full text-left flex gap-4 items-center">
+        <div class="w-12 h-12 rounded-xl bg-green-50 text-2xl flex items-center justify-center">⚡</div>
+        <div class="flex-1">
+          <div class="font-bold text-[15px]">Fampay Auto</div>
+          <div class="text-xs text-gray-400">Automatic verification</div>
+        </div>
+      </button>
+      <button onclick="selectPay('bharatpe')" class="card p-4 w-full text-left flex gap-4 items-center">
+        <div class="w-12 h-12 rounded-xl bg-orange-50 text-2xl flex items-center justify-center">📱</div>
+        <div class="flex-1">
+          <div class="font-bold text-[15px]">BharatPe Auto</div>
+          <div class="text-xs text-gray-400">Automatic verification</div>
+        </div>
+      </button>
+      <button onclick="selectPay('usdt')" class="card p-4 w-full text-left flex gap-4 items-center">
+        <div class="w-12 h-12 rounded-xl bg-yellow-50 text-2xl flex items-center justify-center">₮</div>
+        <div class="flex-1">
+          <div class="font-bold text-[15px]">USDT (TRC20)</div>
+          <div class="text-xs text-gray-400">Crypto payment</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- Amount form (hidden until method selected) -->
+    <div id="deposit-form" class="hidden px-5 mt-5">
+      <div class="card p-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Amount (₹)</label>
+          <input type="number" id="dep-amount" class="input" placeholder="Enter amount" min="10">
+        </div>
+        <div id="pay-details" class="text-sm text-gray-600 bg-gray-50 rounded-xl p-4"></div>
+        <div id="dep-utr-wrap" class="hidden">
+          <label class="block text-sm font-medium mb-1.5">UTR / Transaction ID</label>
+          <input type="text" id="dep-utr" class="input" placeholder="Enter UTR number">
+        </div>
+        <button onclick="submitDeposit()" class="btn-primary w-full py-3.5">Submit Payment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WALLET / HISTORY -->
+  <div id="page-wallet" class="page">
+    <div class="px-5 pt-5 pb-3">
+      <h1 class="text-2xl font-bold">Wallet</h1>
+      <p class="text-gray-500 text-sm mt-0.5">Balance & transactions</p>
+    </div>
+    <div class="mx-5 rounded-2xl bg-gradient-to-br from-green-600 to-emerald-600 text-white p-5 mb-5">
+      <div class="text-green-100 text-sm">Available Balance</div>
+      <div class="text-3xl font-extrabold mt-1" id="bal-wallet">₹0.00</div>
+      <button onclick="showPage('deposit')" class="mt-4 w-full py-3 rounded-xl bg-white text-green-700 font-semibold text-sm">+ Add Funds</button>
+    </div>
+    <div class="px-5">
+      <div class="flex gap-2 overflow-x-auto pb-3" id="hist-chips">
+        <button class="chip on" data-hf="all" onclick="filterHist(this)">All</button>
+        <button class="chip" data-hf="recharge" onclick="filterHist(this)">Recharge</button>
+        <button class="chip" data-hf="purchase" onclick="filterHist(this)">Purchases</button>
+        <button class="chip" data-hf="redeem" onclick="filterHist(this)">Redeem</button>
+      </div>
+      <div id="hist-list" class="card overflow-hidden mt-2"></div>
+    </div>
+  </div>
+
+  <!-- ORDERS -->
+  <div id="page-orders" class="page">
+    <div class="px-5 pt-5 pb-3">
+      <h1 class="text-2xl font-bold">My Orders</h1>
+      <p class="text-gray-500 text-sm mt-0.5">All purchases</p>
+    </div>
+    <div class="px-5 flex gap-2 overflow-x-auto pb-3">
+      <button class="chip on" data-of="all" onclick="filterOrders(this)">All</button>
+      <button class="chip" data-of="server1" onclick="filterOrders(this)">TG</button>
+      <button class="chip" data-of="server2" onclick="filterOrders(this)">WhatsApp</button>
+      <button class="chip" data-of="server3" onclick="filterOrders(this)">App OTP</button>
+      <button class="chip" data-of="digital" onclick="filterOrders(this)">Digital</button>
+    </div>
+    <div id="orders-list" class="px-5 space-y-2"></div>
+  </div>
+
+  <!-- DIGITAL SHOP -->
+  <div id="page-digital" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('store')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div>
+        <h1 class="text-xl font-bold">Digital Shop</h1>
+        <p class="text-gray-500 text-xs">Instant delivery products</p>
+      </div>
+    </div>
+    <div id="digital-list" class="px-5 space-y-3"></div>
+  </div>
+
+  <!-- SMM -->
+  <div id="page-smm" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('store')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div>
+        <h1 class="text-xl font-bold">SMM Services</h1>
+        <p class="text-gray-500 text-xs">Boost your social media</p>
+      </div>
+    </div>
+    <div id="smm-cats" class="px-5 flex gap-2 overflow-x-auto pb-3"></div>
+    <div id="smm-list" class="px-5 space-y-2"></div>
+  </div>
+
+  <!-- REDEEM -->
+  <div id="page-redeem" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('home')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div>
+        <h1 class="text-xl font-bold">Redeem Code</h1>
+        <p class="text-gray-500 text-xs">Enter gift / promo code</p>
+      </div>
+    </div>
+    <div class="px-5">
+      <div class="card p-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Code</label>
+          <input type="text" id="redeem-code" class="input uppercase" placeholder="ENTER CODE" style="letter-spacing:.1em">
+        </div>
+        <button onclick="doRedeem()" class="btn-primary w-full py-3.5">Redeem</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUPPORT -->
+  <div id="page-support" class="page">
+    <div class="px-5 pt-5 pb-3">
+      <h1 class="text-2xl font-bold">Support</h1>
+      <p class="text-gray-500 text-sm mt-0.5">We're here to help</p>
+    </div>
+    <div class="px-5 space-y-3">
+      <div class="card p-4 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-green-50 text-green-600 flex items-center justify-center text-lg">🆔</div>
+        <div class="flex-1">
+          <div class="text-xs text-gray-400">Your ID (attach to tickets)</div>
+          <div class="font-mono font-semibold" id="support-uid">—</div>
+        </div>
+        <button onclick="copyText(STATE.user?.id)" class="text-xs text-green-600 font-medium">Copy</button>
+      </div>
+      <button onclick="openNewTicket()" class="btn-primary w-full py-3.5">+ New Ticket</button>
+      <div id="tickets-list" class="space-y-2 mt-2"></div>
+    </div>
+  </div>
+
+  <!-- NEW TICKET -->
+  <div id="page-new-ticket" class="page">
+    <div class="px-5 pt-5 pb-3 flex items-center gap-3">
+      <button onclick="showPage('support')" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h1 class="text-xl font-bold">New Ticket</h1>
+    </div>
+    <div class="px-5 space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-2">Category</label>
+        <div class="flex gap-2 overflow-x-auto" id="ticket-cats">
+          <button class="chip on" data-cat="payment" onclick="selectCat(this)">💳 Payment</button>
+          <button class="chip" data-cat="order" onclick="selectCat(this)">📦 Order</button>
+          <button class="chip" data-cat="account" onclick="selectCat(this)">👤 Account</button>
+          <button class="chip" data-cat="other" onclick="selectCat(this)">💬 Other</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1.5">Message</label>
+        <textarea id="ticket-msg" class="input min-h-[120px]" placeholder="Describe your issue in detail..."></textarea>
+      </div>
+      <button onclick="submitTicket()" class="btn-primary w-full py-3.5">Submit Ticket</button>
+    </div>
+  </div>
+
+  <!-- PROFILE -->
+  <div id="page-profile" class="page">
+    <div class="px-5 pt-5 pb-3">
+      <h1 class="text-2xl font-bold">Account</h1>
+      <p class="text-gray-500 text-sm mt-0.5">Your details</p>
+    </div>
+    <div class="px-5">
+      <div class="card p-5 flex items-center gap-4 mb-4">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 text-white flex items-center justify-center text-2xl font-bold" id="profile-avatar">A</div>
+        <div>
+          <div class="font-bold text-lg" id="profile-name">User</div>
+          <div class="text-sm text-gray-500" id="profile-email">—</div>
+          <div class="mt-1 inline-block text-xs font-semibold bg-green-50 text-green-700 px-2.5 py-0.5 rounded-full" id="profile-tier">Bronze</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="card p-4">
+          <div class="text-xs text-gray-400">Balance</div>
+          <div class="text-xl font-bold mt-1" id="profile-bal">₹0</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-xs text-gray-400">User ID</div>
+          <div class="text-xl font-bold mt-1 font-mono" id="profile-id">—</div>
+        </div>
+      </div>
+      <div class="card overflow-hidden mb-4">
+        <div class="px-4 py-3 border-b border-gray-50 text-sm flex justify-between"><span class="text-gray-500">Email</span><span id="p-email">—</span></div>
+        <div class="px-4 py-3 border-b border-gray-50 text-sm flex justify-between"><span class="text-gray-500">Member since</span><span id="p-joined">—</span></div>
+        <div class="px-4 py-3 text-sm flex justify-between"><span class="text-gray-500">Total Deposited</span><span id="p-deposited">₹0</span></div>
+      </div>
+      <button onclick="doLogout()" class="w-full py-3.5 rounded-xl border border-red-200 text-red-600 font-semibold text-sm">Logout</button>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav fixed bottom-0 inset-x-0 border-t border-gray-100 flex z-30 safe-bottom">
+    <button data-nav="home" onclick="showPage('home')" class="nav-btn flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] text-green-600 font-semibold">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
+      Home
+    </button>
+    <button data-nav="store" onclick="showPage('store')" class="nav-btn flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] text-gray-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+      Store
+    </button>
+    <button data-nav="wallet" onclick="showPage('wallet')" class="nav-btn flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] text-gray-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+      Wallet
+    </button>
+    <button data-nav="orders" onclick="showPage('orders')" class="nav-btn flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] text-gray-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      Orders
+    </button>
+    <button data-nav="profile" onclick="showPage('profile')" class="nav-btn flex-1 py-2.5 flex flex-col items-center gap-0.5 text-[11px] text-gray-400">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+      Me
+    </button>
+  </nav>
+</div>
+
+<script>
+/* ============================================================
+   STATE & MOCK DATA (replace with real API later)
+   ============================================================ */
+const STATE = {
+  user: null,
+  balance: 0,
+  deposited: 0,
+  orders: [],
+  deposits: [],
+  tickets: [],
+  digital: [],
+  smm: [],
+  countries: [],
+  currentServer: 1,
+  currentCountry: null,
+  currentOrder: null,
+  payMethod: null,
+  ticketCat: 'payment',
+  histFilter: 'all',
+  orderFilter: 'all',
+};
+
+const MOCK_COUNTRIES = {
+  1: [
+    {code:'IN',name:'India',flag:'🇮🇳',price:45,stock:120},
+    {code:'US',name:'United States',flag:'🇺🇸',price:89,stock:45},
+    {code:'RU',name:'Russia',flag:'🇷🇺',price:55,stock:80},
+    {code:'ID',name:'Indonesia',flag:'🇮🇩',price:38,stock:200},
+    {code:'BR',name:'Brazil',flag:'🇧🇷',price:62,stock:30},
+    {code:'PH',name:'Philippines',flag:'🇵🇭',price:42,stock:95},
+    {code:'VN',name:'Vietnam',flag:'🇻🇳',price:40,stock:70},
+    {code:'TR',name:'Turkey',flag:'🇹🇷',price:58,stock:25},
+  ],
+  2: [
+    {code:'IN',name:'India',flag:'🇮🇳',price:35,stock:50},
+    {code:'US',name:'United States',flag:'🇺🇸',price:75,stock:20},
+    {code:'ID',name:'Indonesia',flag:'🇮🇩',price:28,stock:90},
+    {code:'BR',name:'Brazil',flag:'🇧🇷',price:48,stock:15},
+  ],
+  3: [
+    {code:'IN',name:'India',flag:'🇮🇳',price:12,stock:500},
+    {code:'US',name:'United States',flag:'🇺🇸',price:25,stock:200},
+    {code:'RU',name:'Russia',flag:'🇷🇺',price:15,stock:300},
+    {code:'ID',name:'Indonesia',flag:'🇮🇩',price:10,stock:400},
+  ],
+};
+
+const MOCK_DIGITAL = [
+  {id:1,name:'Telegram Premium 1 Month',price:199,desc:'Official Telegram Premium'},
+  {id:2,name:'Canva Pro 1 Year',price:149,desc:'Design tool access'},
+  {id:3,name:'ChatGPT Plus Account',price:399,desc:'Ready-to-use account'},
+  {id:4,name:'Netflix 1 Month Shared',price:99,desc:'Shared profile'},
+];
+
+const MOCK_SMM = [
+  {id:1,cat:'Telegram',name:'TG Channel Members',rate:2.5,min:100,max:10000},
+  {id:2,cat:'Telegram',name:'TG Post Views',rate:0.5,min:500,max:50000},
+  {id:3,cat:'Instagram',name:'IG Followers',rate:8,min:100,max:5000},
+  {id:4,cat:'Instagram',name:'IG Likes',rate:1.2,min:50,max:10000},
+  {id:5,cat:'YouTube',name:'YT Views',rate:3,min:1000,max:100000},
+  {id:6,cat:'YouTube',name:'YT Subscribers',rate:45,min:50,max:2000},
+];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const money = n => '₹' + (Number(n)||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const toast = (msg, err=false) => {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (err?'err':'ok');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.className = 'toast', 2800);
+};
+const copyText = t => { navigator.clipboard?.writeText(String(t)); toast('Copied!'); };
+
+function showPage(name) {
+  // ALWAYS hide every page first (fixes stacked screens)
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+  const authPages = ['landing','login','register'];
+  if (authPages.includes(name)) {
+    document.getElementById('auth-screens').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+    const el = document.getElementById('page-' + name);
+    if (el) el.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  // App pages
+  if (!STATE.user) { showPage('login'); return; }
+  document.getElementById('auth-screens').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const el = document.getElementById('page-' + name);
+  if (el) el.classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Nav highlight
+  const navMap = {home:'home',store:'store',wallet:'wallet',orders:'orders',profile:'profile',
+    deposit:'wallet',countries:'store',buy:'store',digital:'store',smm:'store',redeem:'home',
+    support:'profile','new-ticket':'profile','order-result':'orders'};
+  const nav = navMap[name] || 'home';
+  $$('.nav-btn').forEach(b => {
+    const on = b.dataset.nav === nav;
+    b.classList.toggle('text-green-600', on);
+    b.classList.toggle('font-semibold', on);
+    b.classList.toggle('text-gray-400', !on);
+  });
+
+  // Page-specific render
+  if (name==='home') renderHome();
+  if (name==='wallet') renderWallet();
+  if (name==='orders') renderOrders();
+  if (name==='profile') renderProfile();
+  if (name==='digital') renderDigital();
+  if (name==='smm') renderSMM();
+  if (name==='support') renderSupport();
+  if (name==='countries') renderCountries();
+}
+
+/* ============================================================
+   AUTH
+   ============================================================ */
+function doRegister() {
+  const name = $('#reg-name').value.trim();
+  const email = $('#reg-email').value.trim().toLowerCase();
+  const pass = $('#reg-pass').value;
+  const err = $('#reg-error');
+  if (!email || !pass) { err.textContent='Email & password required'; err.classList.remove('hidden'); return; }
+  if (pass.length < 6) { err.textContent='Password min 6 characters'; err.classList.remove('hidden'); return; }
+  // Demo: save to localStorage
+  const users = JSON.parse(localStorage.getItem('ats_users')||'{}');
+  if (users[email]) { err.textContent='Email already registered'; err.classList.remove('hidden'); return; }
+  const uid = Date.now() % 1000000;
+  users[email] = {id:uid, email, name, pass, balance:100, deposited:100, joined:new Date().toISOString().slice(0,10)};
+  localStorage.setItem('ats_users', JSON.stringify(users));
+  localStorage.setItem('ats_session', email);
+  loadUser(users[email]);
+  toast('Account created! ₹100 bonus added');
+  showPage('home');
+}
+
+
+function quickTestLogin() {
+  // ensure demo user exists
+  const users = JSON.parse(localStorage.getItem('ats_users')||'{}');
+  if (!users['test@aaditya.com']) {
+    users['test@aaditya.com'] = {
+      id: 100001,
+      email: 'test@aaditya.com',
+      name: 'Test User',
+      pass: 'test123',
+      balance: 500,
+      deposited: 1000,
+      joined: new Date().toISOString().slice(0,10)
+    };
+    localStorage.setItem('ats_users', JSON.stringify(users));
+  }
+  document.getElementById('login-email').value = 'test@aaditya.com';
+  document.getElementById('login-pass').value = 'test123';
+  doLogin();
+}
+
+function doLogin() {
+  const email = $('#login-email').value.trim().toLowerCase();
+  const pass = $('#login-pass').value;
+  const err = $('#login-error');
+  const users = JSON.parse(localStorage.getItem('ats_users')||'{}');
+  const u = users[email];
+  if (!u || u.pass !== pass) { err.textContent='Invalid email or password'; err.classList.remove('hidden'); return; }
+  localStorage.setItem('ats_session', email);
+  loadUser(u);
+  toast('Welcome back!');
+  showPage('home');
+}
+
+function doLogout() {
+  localStorage.removeItem('ats_session');
+  STATE.user = null;
+  showPage('landing');
+}
+
+function loadUser(u) {
+  STATE.user = u;
+  STATE.balance = u.balance || 0;
+  STATE.deposited = u.deposited || 0;
+  // Load mock data if empty
+  if (!STATE.orders.length) {
+    STATE.orders = JSON.parse(localStorage.getItem('ats_orders_'+u.id)||'[]');
+  }
+  if (!STATE.deposits.length) {
+    STATE.deposits = JSON.parse(localStorage.getItem('ats_deps_'+u.id)||'[]');
+  }
+  if (!STATE.tickets.length) {
+    STATE.tickets = JSON.parse(localStorage.getItem('ats_tickets_'+u.id)||'[]');
+  }
+  STATE.digital = MOCK_DIGITAL;
+  STATE.smm = MOCK_SMM;
+}
+
+function saveUser() {
+  if (!STATE.user) return;
+  const users = JSON.parse(localStorage.getItem('ats_users')||'{}');
+  users[STATE.user.email] = {...STATE.user, balance:STATE.balance, deposited:STATE.deposited};
+  localStorage.setItem('ats_users', JSON.stringify(users));
+  localStorage.setItem('ats_orders_'+STATE.user.id, JSON.stringify(STATE.orders));
+  localStorage.setItem('ats_deps_'+STATE.user.id, JSON.stringify(STATE.deposits));
+  localStorage.setItem('ats_tickets_'+STATE.user.id, JSON.stringify(STATE.tickets));
+}
+
+/* ============================================================
+   RENDERERS
+   ============================================================ */
+function renderHome() {
+  const name = STATE.user?.name || STATE.user?.email?.split('@')[0] || 'User';
+  $('#home-greeting').textContent = 'Hello, ' + name;
+  $('#bal-home').textContent = money(STATE.balance);
+  const tier = STATE.deposited >= 5000 ? 'Gold 🥇' : STATE.deposited >= 1000 ? 'Silver 🥈' : 'Bronze 🥉';
+  $('#tier-badge').textContent = tier;
+  const list = $('#recent-orders');
+  const recent = STATE.orders.slice(0,5);
+  if (!recent.length) {
+    list.innerHTML = '<div class="px-5 py-10 text-center text-gray-400 text-sm">No orders yet</div>';
+    return;
+  }
+  list.innerHTML = recent.map(o => `
+    <div class="px-4 py-3.5 flex justify-between items-center border-b border-gray-50 last:border-0 cursor-pointer" onclick="viewOrder('${o.id}')">
+      <div class="min-w-0">
+        <div class="font-medium text-sm truncate">${esc(o.country||o.name||'Order')}</div>
+        <div class="text-xs text-gray-400">${esc(o.phone||'')} · ${o.date||''}</div>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="font-semibold text-sm">${money(o.price)}</div>
+        <div class="text-xs text-gray-400">${o.status||'Done'}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderWallet() {
+  $('#bal-wallet').textContent = money(STATE.balance);
+  filterHist({dataset:{hf:STATE.histFilter}, classList:{add(){},remove(){},contains:()=>true}});
+}
+
+function filterHist(btn) {
+  if (btn.dataset) {
+    STATE.histFilter = btn.dataset.hf;
+    $$('#hist-chips .chip').forEach(c => c.classList.toggle('on', c.dataset.hf===STATE.histFilter));
+  }
+  const items = [];
+  STATE.deposits.forEach(d => items.push({k:'recharge', t:d.method||'Recharge', a:d.amount, ts:d.date, status:d.status}));
+  STATE.orders.forEach(o => items.push({k:'purchase', t:o.country||o.name||'Purchase', a:-(o.price||0), ts:o.date, status:o.status}));
+  items.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const filtered = STATE.histFilter==='all' ? items : items.filter(i=>i.k===STATE.histFilter);
+  const list = $('#hist-list');
+  if (!filtered.length) {
+    list.innerHTML = '<div class="px-5 py-10 text-center text-gray-400 text-sm">Nothing here yet</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(i => `
+    <div class="px-4 py-3.5 flex justify-between items-center border-b border-gray-50 last:border-0">
+      <div>
+        <div class="font-medium text-sm">${esc(i.t)}</div>
+        <div class="text-xs text-gray-400">${i.ts||''}</div>
+      </div>
+      <div class="font-semibold text-sm ${i.a>0?'text-green-600':''}">${i.a>0?'+':''}${money(Math.abs(i.a))}</div>
+    </div>
+  `).join('');
+}
+
+function renderOrders() {
+  filterOrders({dataset:{of:STATE.orderFilter}});
+}
+
+function filterOrders(btn) {
+  if (btn.dataset) {
+    STATE.orderFilter = btn.dataset.of;
+    $$('[data-of]').forEach(c => c.classList.toggle('on', c.dataset.of===STATE.orderFilter));
+  }
+  let list = STATE.orders;
+  if (STATE.orderFilter !== 'all') list = list.filter(o => (o.kind||'')===STATE.orderFilter);
+  const el = $('#orders-list');
+  if (!list.length) {
+    el.innerHTML = '<div class="card px-5 py-12 text-center text-gray-400 text-sm">No orders yet</div>';
+    return;
+  }
+  el.innerHTML = list.map(o => `
+    <div class="card p-4 flex justify-between items-center cursor-pointer active:scale-[.98] transition" onclick="viewOrder('${o.id}')">
+      <div class="min-w-0">
+        <div class="font-medium text-sm">${esc(o.country||o.name||'Order')}</div>
+        <div class="text-xs text-gray-400 mt-0.5">${esc(o.phone||'')} · ${o.date||''}</div>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="font-semibold text-sm">${money(o.price)}</div>
+        <span class="text-[11px] px-2 py-0.5 rounded-full ${statusClass(o.status)}">${o.status||'Done'}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function statusClass(s) {
+  s = (s||'').toLowerCase();
+  if (s.includes('done')||s.includes('complete')||s.includes('success')) return 'bg-green-50 text-green-700';
+  if (s.includes('cancel')||s.includes('fail')||s.includes('refund')) return 'bg-red-50 text-red-700';
+  return 'bg-yellow-50 text-yellow-700';
+}
+
+function renderProfile() {
+  const u = STATE.user;
+  $('#profile-name').textContent = u.name || 'User';
+  $('#profile-email').textContent = u.email;
+  $('#profile-avatar').textContent = (u.name||u.email||'A')[0].toUpperCase();
+  $('#profile-bal').textContent = money(STATE.balance);
+  $('#profile-id').textContent = '#' + u.id;
+  $('#p-email').textContent = u.email;
+  $('#p-joined').textContent = u.joined || '—';
+  $('#p-deposited').textContent = money(STATE.deposited);
+  const tier = STATE.deposited >= 5000 ? 'Gold 🥇' : STATE.deposited >= 1000 ? 'Silver 🥈' : 'Bronze 🥉';
+  $('#profile-tier').textContent = tier;
+}
+
+function renderDigital() {
+  $('#digital-list').innerHTML = STATE.digital.map(p => `
+    <div class="card p-4 flex gap-4 items-center">
+      <div class="w-12 h-12 rounded-xl bg-orange-50 text-2xl flex items-center justify-center shrink-0">🛒</div>
+      <div class="flex-1 min-w-0">
+        <div class="font-bold text-sm">${esc(p.name)}</div>
+        <div class="text-xs text-gray-400">${esc(p.desc)}</div>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="font-bold text-sm text-green-600">${money(p.price)}</div>
+        <button onclick="buyDigital(${p.id})" class="mt-1 text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg font-semibold">Buy</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderSMM() {
+  const cats = [...new Set(STATE.smm.map(s=>s.cat))];
+  $('#smm-cats').innerHTML = cats.map((c,i) =>
+    `<button class="chip ${i===0?'on':''}" data-scat="${c}" onclick="filterSMM(this)">${c}</button>`
+  ).join('');
+  filterSMM({dataset:{scat:cats[0]}, classList:{add(){},remove(){}}});
+}
+
+function filterSMM(btn) {
+  const cat = btn.dataset.scat;
+  $$('#smm-cats .chip').forEach(c => c.classList.toggle('on', c.dataset.scat===cat));
+  const list = STATE.smm.filter(s => s.cat===cat);
+  $('#smm-list').innerHTML = list.map(s => `
+    <div class="card p-4">
+      <div class="font-bold text-sm">${esc(s.name)}</div>
+      <div class="text-xs text-gray-400 mt-1">Rate: ${money(s.rate)}/1k · Min ${s.min} · Max ${s.max}</div>
+      <button onclick="toast('SMM order: open Telegram bot for full flow')" class="mt-3 w-full py-2.5 rounded-xl bg-green-50 text-green-700 text-sm font-semibold">Order</button>
+    </div>
+  `).join('');
+}
+
+function renderSupport() {
+  $('#support-uid').textContent = '#' + (STATE.user?.id||'');
+  const list = $('#tickets-list');
+  if (!STATE.tickets.length) {
+    list.innerHTML = '<div class="card px-5 py-10 text-center text-gray-400 text-sm">No tickets yet</div>';
+    return;
+  }
+  list.innerHTML = STATE.tickets.map(t => `
+    <div class="card p-4 flex justify-between items-center">
+      <div>
+        <div class="font-medium text-sm">${esc(t.subject)}</div>
+        <div class="text-xs text-gray-400">#${t.id} · ${t.cat} · ${t.date}</div>
+      </div>
+      <span class="text-xs px-2 py-0.5 rounded-full ${t.status==='open'?'bg-green-50 text-green-700':'bg-gray-100 text-gray-500'}">${t.status}</span>
+    </div>
+  `).join('');
+}
+
+function renderCountries() {
+  const srv = STATE.currentServer;
+  const titles = {1:'TG Accounts',2:'WhatsApp Numbers',3:'App OTP'};
+  $('#countries-title').textContent = titles[srv] || 'Countries';
+  $('#countries-sub').textContent = 'Server ' + srv + ' · Select country';
+  STATE.countries = MOCK_COUNTRIES[srv] || [];
+  filterCountries();
+}
+
+function filterCountries() {
+  const q = ($('#country-search')?.value || '').toLowerCase();
+  const list = STATE.countries.filter(c => !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q));
+  $('#countries-list').innerHTML = list.map(c => `
+    <button onclick='selectCountry(${JSON.stringify(c)})' class="card p-4 w-full text-left flex items-center gap-3 active:scale-[.98] transition">
+      <span class="text-2xl">${c.flag}</span>
+      <div class="flex-1">
+        <div class="font-semibold text-sm">${esc(c.name)}</div>
+        <div class="text-xs text-gray-400">Stock: ${c.stock}</div>
+      </div>
+      <div class="font-bold text-green-600">${money(c.price)}</div>
+    </button>
+  `).join('') || '<div class="text-center text-gray-400 py-10 text-sm">No countries found</div>';
+}
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+function openServer(n) {
+  STATE.currentServer = n;
+  showPage('countries');
+}
+
+function selectCountry(c) {
+  STATE.currentCountry = c;
+  $('#buy-service').textContent = {1:'TG Account',2:'WhatsApp OTP',3:'App OTP'}[STATE.currentServer];
+  $('#buy-country').textContent = c.flag + ' ' + c.name;
+  $('#buy-price').textContent = money(c.price);
+  $('#buy-bal').textContent = money(STATE.balance);
+  const btn = $('#buy-btn');
+  if (STATE.balance < c.price) {
+    btn.textContent = 'Insufficient Balance – Add Funds';
+    btn.onclick = () => showPage('deposit');
+  } else {
+    btn.textContent = 'Confirm & Buy';
+    btn.onclick = confirmBuy;
+  }
+  showPage('buy');
+}
+
+function confirmBuy() {
+  const c = STATE.currentCountry;
+  if (!c || STATE.balance < c.price) { toast('Insufficient balance', true); return; }
+  STATE.balance -= c.price;
+  const phone = '+' + (c.code==='IN'?'91':'1') + Math.floor(1000000000 + Math.random()*9000000000);
+  const order = {
+    id: 'ORD' + Date.now().toString(36).toUpperCase(),
+    kind: 'server' + STATE.currentServer,
+    country: c.name,
+    phone,
+    price: c.price,
+    status: 'WAIT_CODE',
+    code: '',
+    date: new Date().toLocaleString('en-IN'),
+  };
+  STATE.orders.unshift(order);
+  STATE.currentOrder = order;
+  saveUser();
+  toast('Order placed! Waiting for code…');
+  viewOrder(order.id);
+}
+
+function viewOrder(id) {
+  const o = STATE.orders.find(x => x.id === id);
+  if (!o) return;
+  STATE.currentOrder = o;
+  $('#order-detail-card').innerHTML = `
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Order ID</span><span class="font-mono font-medium">${o.id}</span></div>
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Country</span><span class="font-medium">${esc(o.country)}</span></div>
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Number</span><span class="font-mono font-medium">${esc(o.phone)}</span></div>
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Price</span><span class="font-bold">${money(o.price)}</span></div>
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Status</span><span class="font-medium">${o.status}</span></div>
+    ${o.code ? `<div class="flex justify-between text-sm"><span class="text-gray-500">OTP / Code</span><span class="font-mono font-bold text-green-600 text-lg">${o.code}</span></div>` : ''}
+    <div class="flex justify-between text-sm"><span class="text-gray-500">Date</span><span>${o.date}</span></div>
+  `;
+  const canCancel = o.status === 'WAIT_CODE';
+  $('#btn-cancel-order').style.display = canCancel ? '' : 'none';
+  $('#btn-check-otp').style.display = canCancel ? '' : 'none';
+  showPage('order-result');
+}
+
+function pollOTP() {
+  const o = STATE.currentOrder;
+  if (!o || o.status !== 'WAIT_CODE') return;
+  // Simulate OTP arrival
+  toast('Checking…');
+  setTimeout(() => {
+    o.code = String(Math.floor(100000 + Math.random()*900000));
+    o.status = 'DONE';
+    saveUser();
+    toast('OTP received: ' + o.code);
+    viewOrder(o.id);
+  }, 1200);
+}
+
+function cancelOrder() {
+  const o = STATE.currentOrder;
+  if (!o || o.status !== 'WAIT_CODE') return;
+  if (!confirm('Cancel this order and refund?')) return;
+  STATE.balance += o.price;
+  o.status = 'CANCELLED';
+  saveUser();
+  toast('Order cancelled. ₹' + o.price + ' refunded');
+  viewOrder(o.id);
+}
+
+function buyDigital(id) {
+  const p = STATE.digital.find(x => x.id === id);
+  if (!p) return;
+  if (STATE.balance < p.price) { toast('Insufficient balance', true); showPage('deposit'); return; }
+  STATE.balance -= p.price;
+  STATE.orders.unshift({
+    id: 'DIG' + Date.now().toString(36).toUpperCase(),
+    kind: 'digital', name: p.name, price: p.price, status: 'DELIVERED',
+    date: new Date().toLocaleString('en-IN'), phone: 'Check email / download'
+  });
+  saveUser();
+  toast('Purchased! Check Orders');
+  showPage('orders');
+}
+
+/* Deposit */
+function selectPay(method) {
+  STATE.payMethod = method;
+  $('#deposit-form').classList.remove('hidden');
+  const details = {
+    upi: `<b>UPI ID:</b> aadityastore@upi<br><b>Name:</b> Aaditya TG Store<br><br>Pay the amount then enter UTR below.`,
+    fampay: `<b>Fampay UPI:</b> fampay@upi<br>Auto-verified within 1-2 minutes.`,
+    bharatpe: `<b>BharatPe UPI:</b> bharatpe@upi<br>Auto-verified within 1-2 minutes.`,
+    usdt: `<b>Network:</b> TRC20<br><b>Address:</b> TXyz...abc123<br><br>Send USDT then enter TXID below.`,
+  };
+  $('#pay-details').innerHTML = details[method] || '';
+  $('#dep-utr-wrap').classList.toggle('hidden', method==='fampay' || method==='bharatpe');
+}
+
+function submitDeposit() {
+  const amount = parseFloat($('#dep-amount').value);
+  if (!amount || amount < 10) { toast('Min ₹10 required', true); return; }
+  const utr = ($('#dep-utr')?.value || '').trim();
+  if ((STATE.payMethod==='upi'||STATE.payMethod==='usdt') && !utr) { toast('Enter UTR / TXID', true); return; }
+  // Demo: auto-approve
+  STATE.balance += amount;
+  STATE.deposited += amount;
+  STATE.deposits.unshift({
+    amount, method: STATE.payMethod.toUpperCase(), status: 'success',
+    date: new Date().toLocaleString('en-IN'), utr
+  });
+  saveUser();
+  toast('₹' + amount + ' added to wallet!');
+  showPage('wallet');
+}
+
+/* Redeem */
+function doRedeem() {
+  const code = ($('#redeem-code').value || '').trim().toUpperCase();
+  if (!code) { toast('Enter a code', true); return; }
+  // Demo codes
+  const codes = {WELCOME50:50, BONUS100:100, AADITYA25:25};
+  if (!codes[code]) { toast('Invalid or expired code', true); return; }
+  const amt = codes[code];
+  STATE.balance += amt;
+  STATE.deposits.unshift({amount:amt, method:'Redeem '+code, status:'success', date:new Date().toLocaleString('en-IN')});
+  saveUser();
+  toast('₹' + amt + ' credited!');
+  $('#redeem-code').value = '';
+  showPage('wallet');
+}
+
+/* Tickets */
+function openNewTicket() { showPage('new-ticket'); }
+function selectCat(btn) {
+  STATE.ticketCat = btn.dataset.cat;
+  $$('#ticket-cats .chip').forEach(c => c.classList.toggle('on', c===btn));
+}
+function submitTicket() {
+  const msg = ($('#ticket-msg').value||'').trim();
+  if (msg.length < 5) { toast('Write at least 5 characters', true); return; }
+  const openCount = STATE.tickets.filter(t=>t.status==='open').length;
+  if (openCount >= 3) { toast('Max 3 open tickets', true); return; }
+  STATE.tickets.unshift({
+    id: 8000 + STATE.tickets.length + 1,
+    cat: STATE.ticketCat,
+    subject: msg.slice(0,40),
+    status: 'open',
+    date: new Date().toLocaleDateString('en-IN'),
+  });
+  saveUser();
+  toast('Ticket created!');
+  showPage('support');
+}
+
+function esc(s) { return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ============================================================
+   INIT
+   ============================================================ */
+(function init() {
+  const session = localStorage.getItem('ats_session');
+  if (session) {
+    const users = JSON.parse(localStorage.getItem('ats_users')||'{}');
+    if (users[session]) {
+      loadUser(users[session]);
+      showPage('home');
+      return;
+    }
+  }
+  showPage('landing');
+})();
+</script>
+</body>
+</html>

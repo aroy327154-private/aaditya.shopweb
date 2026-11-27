@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel – Aaditya TG Store</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  .page { display: none; }
+  .page.active { display: block; animation: fade .2s ease; }
+  @keyframes fade { from{opacity:0} to{opacity:1} }
+  .card { background:#fff; border-radius:16px; border:1px solid #eef0f4; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+  .input { width:100%; padding:11px 14px; border-radius:12px; border:1.5px solid #e5e7eb; outline:none; font-size:14px; }
+  .input:focus { border-color:#111; box-shadow:0 0 0 3px rgba(0,0,0,.06); }
+  .btn { padding:11px 18px; border-radius:12px; font-weight:600; font-size:14px; transition:all .15s; cursor:pointer; border:0; }
+  .btn-dark { background:#111; color:#fff; }
+  .btn-dark:hover { background:#333; }
+  .btn-dark:disabled { opacity:.5; }
+  .btn-red { background:#fef2f2; color:#dc2626; }
+  .btn-green { background:#ecfdf5; color:#059669; }
+  .btn-gray { background:#f3f4f6; color:#374151; }
+  .sidebar-link { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; font-size:14px; color:#9ca3af; cursor:pointer; transition:all .15s; }
+  .sidebar-link:hover, .sidebar-link.on { background:#1f2937; color:#fff; }
+  .toast { position:fixed; top:16px; right:16px; z-index:999; padding:12px 20px; border-radius:12px; font-weight:600; font-size:13px; transform:translateY(-80px); transition:transform .3s; }
+  .toast.show { transform:translateY(0); }
+  .toast.ok { background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; }
+  .toast.err { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:10px 14px; background:#f9fafb; color:#6b7280; font-weight:500; border-bottom:1px solid #f0f0f5; }
+  td { padding:12px 14px; border-bottom:1px solid #f5f5f7; }
+  tr:hover td { background:#fafafa; }
+  .badge { display:inline-flex; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+  .badge-green { background:#ecfdf5; color:#059669; }
+  .badge-red { background:#fef2f2; color:#dc2626; }
+  .badge-yellow { background:#fffbeb; color:#d97706; }
+  .badge-gray { background:#f3f4f6; color:#6b7280; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .modal { background:#fff; border-radius:20px; width:100%; max-width:480px; max-height:90vh; overflow:auto; padding:24px; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+
+<div id="toast" class="toast"></div>
+
+<!-- ===================== LOGIN ===================== -->
+<div id="page-login" class="page active min-h-screen flex items-center justify-center px-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="w-14 h-14 rounded-2xl bg-gray-900 text-white flex items-center justify-center font-bold text-2xl mx-auto mb-4">A</div>
+      <h1 class="text-2xl font-bold">Admin Panel</h1>
+      <p class="text-gray-500 text-sm mt-1">Aaditya TG Store</p>
+    </div>
+    <div class="card p-6 space-y-4">
+      <div id="login-err" class="hidden px-3 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm"></div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Username</label>
+        <input type="text" id="adm-user" class="input" placeholder="admin" autocomplete="username">
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Password</label>
+        <input type="password" id="adm-pass" class="input" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button onclick="doAdminLogin()" class="btn btn-dark w-full py-3">Login</button>
+      <button onclick="quickAdminLogin()" class="btn w-full py-3 mt-2" style="background:#ecfdf5;color:#059669;border:1px solid #a7f3d0">⚡ Quick Test Login</button>
+    </div>
+    <p class="text-center text-xs text-gray-400 mt-5">Default: <code>admin</code> / <code>admin123</code></p>
+  </div>
+</div>
+
+<!-- ===================== ADMIN APP ===================== -->
+<div id="admin-app" class="hidden min-h-screen flex">
+  <!-- Sidebar -->
+  <aside class="hidden md:flex flex-col w-56 bg-gray-900 text-white fixed inset-y-0 z-20">
+    <div class="p-4 flex items-center gap-3 border-b border-gray-800">
+      <div class="w-9 h-9 rounded-lg bg-white text-gray-900 flex items-center justify-center font-bold text-sm">A</div>
+      <div>
+        <div class="font-bold text-sm">Admin</div>
+        <div class="text-[11px] text-gray-400">Aaditya TG Store</div>
+      </div>
+    </div>
+    <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <div class="sidebar-link on" data-page="dashboard" onclick="navTo(this)"><span>📊</span> Dashboard</div>
+      <div class="sidebar-link" data-page="users" onclick="navTo(this)"><span>👥</span> Users</div>
+      <div class="sidebar-link" data-page="orders" onclick="navTo(this)"><span>📦</span> Orders</div>
+      <div class="sidebar-link" data-page="deposits" onclick="navTo(this)"><span>💰</span> Deposits</div>
+      <div class="sidebar-link" data-page="stock" onclick="navTo(this)"><span>📂</span> Stock</div>
+      <div class="sidebar-link" data-page="digital" onclick="navTo(this)"><span>🛒</span> Digital Shop</div>
+      <div class="sidebar-link" data-page="redeem" onclick="navTo(this)"><span>🎁</span> Redeem Codes</div>
+      <div class="sidebar-link" data-page="payments" onclick="navTo(this)"><span>💳</span> Payment Methods</div>
+      <div class="sidebar-link" data-page="broadcast" onclick="navTo(this)"><span>📨</span> Broadcast</div>
+      <div class="sidebar-link" data-page="apikeys" onclick="navTo(this)"><span>🔑</span> API Keys</div>
+      <div class="sidebar-link" data-page="admins" onclick="navTo(this)"><span>🛡️</span> Manage Admins</div>
+      <div class="sidebar-link" data-page="serverapis" onclick="navTo(this)"><span>🔌</span> Server APIs</div>
+      <div class="sidebar-link" data-page="smm" onclick="navTo(this)"><span>📱</span> Social Media Service</div>
+      <div class="sidebar-link" data-page="settings" onclick="navTo(this)"><span>⚙️</span> Settings</div>
+      <div class="sidebar-link" data-page="stats" onclick="navTo(this)"><span>📈</span> Statistics</div>
+    </nav>
+    <div class="p-3 border-t border-gray-800">
+      <div class="sidebar-link text-red-400" onclick="doAdminLogout()"><span>🚪</span> Logout</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="flex-1 md:ml-56">
+    <!-- Mobile top -->
+    <header class="md:hidden bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+      <div class="font-bold text-sm">Admin Panel</div>
+      <select id="mobile-nav" onchange="navTo({dataset:{page:this.value}})" class="text-sm border border-gray-200 rounded-lg px-2 py-1.5">
+        <option value="dashboard">Dashboard</option>
+        <option value="users">Users</option>
+        <option value="orders">Orders</option>
+        <option value="deposits">Deposits</option>
+        <option value="stock">Stock</option>
+        <option value="digital">Digital Shop</option>
+        <option value="redeem">Redeem Codes</option>
+        <option value="payments">Payments</option>
+        <option value="broadcast">Broadcast</option>
+        <option value="apikeys">API Keys</option>
+        <option value="admins">Admins</option>
+        <option value="serverapis">Server APIs</option>
+        <option value="smm">Social Media Service</option>
+        <option value="settings">Settings</option>
+        <option value="stats">Statistics</option>
+      </select>
+    </header>
+
+    <main class="p-4 sm:p-6 max-w-6xl mx-auto">
+      <!-- DASHBOARD -->
+      <div id="page-dashboard" class="page active">
+        <h1 class="text-2xl font-bold mb-1">Dashboard</h1>
+        <p class="text-gray-500 text-sm mb-6">Overview of your store</p>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="stat-cards"></div>
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div class="card p-5">
+            <h2 class="font-bold mb-3">Recent Orders</h2>
+            <div id="dash-orders" class="space-y-2 text-sm"></div>
+          </div>
+          <div class="card p-5">
+            <h2 class="font-bold mb-3">Pending Deposits</h2>
+            <div id="dash-deposits" class="space-y-2 text-sm"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div id="page-users" class="page">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">Users</h1>
+            <p class="text-gray-500 text-sm">Manage balances, ban, freeze</p>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" id="user-search" class="input w-48" placeholder="Search ID / name…" oninput="renderUsers()">
+          </div>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>User ID</th><th>Name</th><th>Balance</th><th>Deposited</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ORDERS -->
+      <div id="page-orders" class="page">
+        <h1 class="text-2xl font-bold mb-1">Orders</h1>
+        <p class="text-gray-500 text-sm mb-5">All purchases across servers</p>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>Order ID</th><th>User</th><th>Type</th><th>Country / Item</th><th>Number</th><th>Price</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="orders-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DEPOSITS -->
+      <div id="page-deposits" class="page">
+        <h1 class="text-2xl font-bold mb-1">Deposits</h1>
+        <p class="text-gray-500 text-sm mb-5">Approve / reject pending payments</p>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>ID</th><th>User</th><th>Amount</th><th>Method</th><th>UTR</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+            <tbody id="deps-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- STOCK -->
+      <div id="page-stock" class="page">
+        <div class="flex justify-between items-center mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">Stock Management</h1>
+            <p class="text-gray-500 text-sm">Manual accounts & auto stock</p>
+          </div>
+          <button onclick="showModal('add-stock')" class="btn btn-dark">+ Add Stock</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>Phone</th><th>Country</th><th>Year</th><th>Category</th><th>Price</th><th>2FA</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="stock-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DIGITAL SHOP -->
+      <div id="page-digital" class="page">
+        <div class="flex justify-between items-center mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">Digital Shop</h1>
+            <p class="text-gray-500 text-sm">Manage products</p>
+          </div>
+          <button onclick="showModal('add-digital')" class="btn btn-dark">+ Add Product</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="digital-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- REDEEM -->
+      <div id="page-redeem" class="page">
+        <div class="flex justify-between items-center mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">Redeem Codes</h1>
+            <p class="text-gray-500 text-sm">Create & manage gift codes</p>
+          </div>
+          <button onclick="showModal('add-redeem')" class="btn btn-dark">+ Create Code</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>Code</th><th>Amount</th><th>Used / Max</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="redeem-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PAYMENTS -->
+      <div id="page-payments" class="page">
+        <h1 class="text-2xl font-bold mb-1">Payment Methods</h1>
+        <p class="text-gray-500 text-sm mb-5">Configure UPI, Fampay, BharatPe, USDT</p>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold flex items-center gap-2">₹ UPI Manual <span id="upi-status" class="badge badge-green">ON</span></h3>
+            <div><label class="text-xs text-gray-500">UPI ID</label><input id="set-manual-upi" class="input mt-1" value="aadityastore@upi"></div>
+            <div><label class="text-xs text-gray-500">Name</label><input id="set-manual-name" class="input mt-1" value="Aaditya TG Store"></div>
+            <button onclick="saveSetting('manual')" class="btn btn-dark text-sm">Save</button>
+          </div>
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold flex items-center gap-2">⚡ Fampay Auto <span class="badge badge-green">ON</span></h3>
+            <div><label class="text-xs text-gray-500">Fampay UPI</label><input id="set-fampay-upi" class="input mt-1" value="fampay@upi"></div>
+            <div><label class="text-xs text-gray-500">Name</label><input id="set-fampay-name" class="input mt-1" value="Aaditya TG Store"></div>
+            <button onclick="saveSetting('fampay')" class="btn btn-dark text-sm">Save</button>
+          </div>
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold flex items-center gap-2">📱 BharatPe Auto <span class="badge badge-gray">OFF</span></h3>
+            <div><label class="text-xs text-gray-500">BharatPe UPI</label><input id="set-bp-upi" class="input mt-1" value=""></div>
+            <div><label class="text-xs text-gray-500">Merchant ID</label><input id="set-bp-mid" class="input mt-1" value=""></div>
+            <button onclick="saveSetting('bharatpe')" class="btn btn-dark text-sm">Save</button>
+          </div>
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold flex items-center gap-2">₮ USDT <span class="badge badge-green">ON</span></h3>
+            <div><label class="text-xs text-gray-500">Address (TRC20)</label><input id="set-usdt-addr" class="input mt-1" value=""></div>
+            <div><label class="text-xs text-gray-500">Network</label><input id="set-usdt-net" class="input mt-1" value="TRC20"></div>
+            <button onclick="saveSetting('usdt')" class="btn btn-dark text-sm">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- BROADCAST -->
+      <div id="page-broadcast" class="page">
+        <h1 class="text-2xl font-bold mb-1">Broadcast</h1>
+        <p class="text-gray-500 text-sm mb-5">Send message to all users</p>
+        <div class="card p-5 max-w-lg space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1">Message</label>
+            <textarea id="bc-msg" class="input min-h-[140px]" placeholder="Write your broadcast message…"></textarea>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="doBroadcast()" class="btn btn-dark">Send to All Users</button>
+            <button onclick="toast('Preview: open Telegram bot for media broadcast')" class="btn btn-gray">+ Media</button>
+          </div>
+          <p class="text-xs text-gray-400">Broadcast is processed via the Telegram bot. Web will queue the message.</p>
+        </div>
+      </div>
+
+      <!-- API KEYS -->
+      <div id="page-apikeys" class="page">
+        <div class="flex justify-between items-center mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">API Keys</h1>
+            <p class="text-gray-500 text-sm">Reseller API access for users</p>
+          </div>
+          <button onclick="showModal('add-apikey')" class="btn btn-dark">+ Create Key</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>ID</th><th>Owner</th><th>Prefix</th><th>Status</th><th>Expires</th><th>Action</th></tr></thead>
+            <tbody id="apikeys-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ADMINS -->
+      <div id="page-admins" class="page">
+        <div class="flex justify-between items-center mb-5">
+          <div>
+            <h1 class="text-2xl font-bold">Manage Admins</h1>
+            <p class="text-gray-500 text-sm">Sub-admins & permissions</p>
+          </div>
+          <button onclick="showModal('add-admin')" class="btn btn-dark">+ Add Admin</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table>
+            <thead><tr><th>Username</th><th>Permissions</th><th>Action</th></tr></thead>
+            <tbody id="admins-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SOCIAL MEDIA SERVICE -->
+      <div id="page-smm" class="page">
+        <h1 class="text-2xl font-bold mb-1">Social Media Service</h1>
+        <p class="text-gray-500 text-sm mb-5">SMM panel API, categories and services</p>
+
+        <div class="card p-5 space-y-3 mb-4">
+          <h3 class="font-bold">SMM API</h3>
+          <div><label class="text-xs text-gray-500">API URL</label><input id="smm-url" class="input mt-1" placeholder="https://smmpanel.com/api/v2"></div>
+          <div><label class="text-xs text-gray-500">API Key <span id="smm-key-mask" class="text-gray-400"></span></label><input id="smm-key" type="password" class="input mt-1" placeholder="Leave blank to keep current key"></div>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="saveSmmApi()" class="btn btn-dark text-sm">Save API</button>
+            <button onclick="testSmmApi()" class="btn btn-green text-sm">Test API</button>
+          </div>
+        </div>
+
+        <div class="grid lg:grid-cols-3 gap-4">
+          <div class="card p-5 space-y-3">
+            <div class="flex justify-between items-center">
+              <h3 class="font-bold">Categories</h3>
+              <button onclick="addSmmCat()" class="btn btn-dark text-xs py-1 px-3">+ Create</button>
+            </div>
+            <div id="smm-cats" class="space-y-2"></div>
+          </div>
+          <div class="card p-5 lg:col-span-2">
+            <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+              <h3 class="font-bold">Services</h3>
+              <div class="flex gap-2">
+                <button onclick="showModal('add-smm-service')" class="btn btn-dark text-xs py-1 px-3">+ Add Service</button>
+                <button onclick="showModal('bulk-smm-service')" class="btn btn-gray text-xs py-1 px-3">Bulk Add</button>
+              </div>
+            </div>
+            <div class="overflow-x-auto"><table>
+              <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Rate/1k</th><th>Min–Max</th><th>Action</th></tr></thead>
+              <tbody id="smm-tbody"></tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div id="page-settings" class="page">
+        <h1 class="text-2xl font-bold mb-1">Settings</h1>
+        <p class="text-gray-500 text-sm mb-5">General store settings</p>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold">Support</h3>
+            <div><label class="text-xs text-gray-500">Support User URL</label><input id="set-support" class="input mt-1" value="https://t.me/AADITYAXOFFICAL"></div>
+            <div><label class="text-xs text-gray-500">Support Channel</label><input id="set-support-ch" class="input mt-1" value="https://t.me/+yhaYNpSyF5U3Y2Q9"></div>
+            <button onclick="saveSetting('support')" class="btn btn-dark text-sm">Save</button>
+          </div>
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold">USDT Rate</h3>
+            <div><label class="text-xs text-gray-500">USDT Rate (INR)</label><input id="set-usdt-rate" type="number" class="input mt-1" value="92"></div>
+            <button onclick="saveSetting('usdt')" class="btn btn-dark text-sm">Save</button>
+          </div>
+          <div class="card p-5 space-y-3">
+            <h3 class="font-bold">Danger Zone</h3>
+            <button onclick="if(confirm('Backup all data?'))toast('Backup started – check Telegram')" class="btn btn-gray text-sm w-full">Backup Users & DB</button>
+            <button onclick="if(confirm('This cannot be undone'))toast('Restore only via Telegram bot')" class="btn btn-red text-sm w-full">Restore from Backup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SERVER APIS -->
+      <div id="page-serverapis" class="page">
+        <h1 class="text-2xl font-bold mb-1">Server APIs</h1>
+        <p class="text-gray-500 text-sm mb-5">Set API URL, API key, profit margin and low-balance alert for each server</p>
+        <div class="grid lg:grid-cols-2 gap-4" id="servers-grid"></div>
+      </div>
+
+      <!-- STATS -->
+      <div id="page-stats" class="page">
+        <h1 class="text-2xl font-bold mb-1">Statistics</h1>
+        <p class="text-gray-500 text-sm mb-5">Sales & performance</p>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="stats-detail"></div>
+        <div class="card p-5">
+          <h2 class="font-bold mb-3">Today's Report</h2>
+          <div id="today-report" class="text-sm text-gray-600 space-y-1"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ===================== MODALS ===================== -->
+<div id="modal-root"></div>
+
+<script>
+/* ============================================================
+   STATE
+   ============================================================ */
+const S = {
+  admin: null,
+  users: [],
+  orders: [],
+  deposits: [],
+  stock: [],
+  digital: [],
+  redeem: [],
+  apikeys: [],
+  admins: [],
+  smm: {url:'', key:'', cats:[], services:[]},
+  settings: {support:'https://t.me/AADITYAXOFFICAL', supportCh:'https://t.me/+yhaYNpSyF5U3Y2Q9', usdtRate:92},
+  servers: [
+    {no:1, label:'Server 1', about:'Accounts (Lolzteam Market API). Paste Bearer Access Token with market scope.', url:'https://api.lzt.market', key:'', margin:0, lowbal:0},
+    {no:2, label:'Server 2', about:'WhatsApp OTP numbers (Tiger SMS API).', url:'', key:'', margin:0, lowbal:0},
+    {no:3, label:'Server 3', about:'OTP numbers for all apps. If key is empty, the Server 2 key is used.', url:'', key:'', margin:0, lowbal:0},
+  ],
+};
+
+// Seed demo data
+function seed() {
+  if (localStorage.getItem('ats_admin_seeded')) {
+    loadAll();
+    return;
+  }
+  S.users = [
+    {id:6914205738, name:'Owner', username:'admin', balance:5000, deposited:12000, banned:0, frozen:0},
+    {id:123456789, name:'Rahul', username:'rahul_tg', balance:250, deposited:500, banned:0, frozen:0},
+    {id:987654321, name:'Priya', username:'priya_x', balance:0, deposited:100, banned:0, frozen:0},
+    {id:555666777, name:'Amit', username:'amit99', balance:1200, deposited:3000, banned:1, frozen:0},
+  ];
+  S.orders = [
+    {id:'T-abc123', user:123456789, kind:'TG', country:'India', phone:'+919876543210', price:45, status:'DONE', date:'2026-11-25 14:30'},
+    {id:'W-8821', user:123456789, kind:'WhatsApp', country:'India', phone:'+919123456789', price:35, status:'WAIT_CODE', date:'2026-11-26 10:15'},
+    {id:'A-4412', user:987654321, kind:'AppOTP', country:'USA', phone:'+12025550123', price:25, status:'DONE', date:'2026-11-24 09:00'},
+  ];
+  S.deposits = [
+    {id:1, user:123456789, amount:500, method:'UPI Manual', utr:'123456789012', status:'pending', date:'2026-11-26 09:00'},
+    {id:2, user:987654321, amount:100, method:'Fampay', utr:'', status:'success', date:'2026-11-25 18:00'},
+    {id:3, user:123456789, amount:200, method:'USDT', utr:'0xabc…', status:'success', date:'2026-11-24 12:00'},
+  ];
+  S.stock = [
+    {phone:'+919988776655', country:'India', year:2023, cat:'Good', price:45, twofa:'None', available:1},
+    {phone:'+12025550999', country:'USA', year:2022, cat:'Premium', price:89, twofa:'Yes', available:1},
+    {phone:'+79161234567', country:'Russia', year:2024, cat:'Good', price:55, twofa:'None', available:0},
+  ];
+  S.digital = [
+    {id:1, name:'Telegram Premium 1M', price:199, active:1},
+    {id:2, name:'Canva Pro 1Y', price:149, active:1},
+    {id:3, name:'ChatGPT Plus', price:399, active:0},
+  ];
+  S.redeem = [
+    {code:'WELCOME50', amount:50, used:12, max:100, active:1},
+    {code:'BONUS100', amount:100, used:5, max:20, active:1},
+    {code:'OLDCODE', amount:25, used:50, max:50, active:0},
+  ];
+  S.apikeys = [
+    {id:1, owner:123456789, prefix:'ats_xK9m…', status:'active', expires:'2027-01-15'},
+    {id:2, owner:987654321, prefix:'ats_pL2n…', status:'suspended', expires:'2026-12-01'},
+  ];
+  S.admins = [
+    {id:1, username:'subadmin1', password:'changeme', p_add_stock:1, p_manage_stock:1, p_stats:1, p_bal:0, p_settings:0},
+  ];
+  saveAll();
+  localStorage.setItem('ats_admin_seeded', '1');
+}
+
+function saveAll() {
+  localStorage.setItem('ats_adm_data', JSON.stringify({
+    users:S.users, orders:S.orders, deposits:S.deposits, stock:S.stock,
+    digital:S.digital, redeem:S.redeem, apikeys:S.apikeys, admins:S.admins, settings:S.settings, servers:S.servers, smm:S.smm
+  }));
+}
+function loadAll() {
+  const d = JSON.parse(localStorage.getItem('ats_adm_data')||'{}');
+  Object.assign(S, d);
+  delete S.channels;
+}
+
+/* ============================================================
+   AUTH
+   ============================================================ */
+
+function quickAdminLogin() {
+  document.getElementById('adm-user').value = 'admin';
+  document.getElementById('adm-pass').value = 'admin123';
+  doAdminLogin();
+}
+
+function doAdminLogin() {
+  const u = $('#adm-user').value.trim();
+  const p = $('#adm-pass').value;
+  // Default credentials + stored
+  const creds = JSON.parse(localStorage.getItem('ats_admin_creds')||'{"admin":"admin123"}');
+  if (creds[u] !== p) {
+    $('#login-err').textContent = 'Invalid username or password';
+    $('#login-err').classList.remove('hidden');
+    return;
+  }
+  S.admin = {username:u};
+  localStorage.setItem('ats_admin_session', u);
+  showAdmin();
+}
+
+function doAdminLogout() {
+  localStorage.removeItem('ats_admin_session');
+  S.admin = null;
+  $('#admin-app').classList.add('hidden');
+  $('#page-login').classList.add('active');
+  $('#page-login').style.display = '';
+}
+
+function showAdmin() {
+  $('#page-login').classList.remove('active');
+  $('#page-login').style.display = 'none';
+  $('#admin-app').classList.remove('hidden');
+  renderDashboard();
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+function navTo(el) {
+  const page = el.dataset.page;
+  $$('.sidebar-link').forEach(l => l.classList.toggle('on', l.dataset.page===page));
+  $$('#admin-app .page').forEach(p => p.classList.remove('active'));
+  $(`#page-${page}`)?.classList.add('active');
+  if ($('#mobile-nav')) $('#mobile-nav').value = page;
+
+  const renders = {
+    dashboard: renderDashboard, users: renderUsers, orders: renderOrders,
+    deposits: renderDeposits, stock: renderStock, digital: renderDigital,
+    redeem: renderRedeem, serverapis: renderServers, smm: renderSmm, settings: renderSettings, apikeys: renderApiKeys,
+    admins: renderAdmins, stats: renderStats,
+  };
+  renders[page]?.();
+}
+
+/* ============================================================
+   RENDERERS
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const money = n => '₹' + (Number(n)||0).toLocaleString('en-IN');
+const toast = (m, err=false) => {
+  const t = $('#toast'); t.textContent=m; t.className='toast show '+(err?'err':'ok');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.className='toast',2500);
+};
+
+function renderDashboard() {
+  const totalBal = S.users.reduce((a,u)=>a+(u.balance||0),0);
+  const totalDep = S.users.reduce((a,u)=>a+(u.deposited||0),0);
+  const pending = S.deposits.filter(d=>d.status==='pending').length;
+  $('#stat-cards').innerHTML = `
+    <div class="card p-4"><div class="text-xs text-gray-400 uppercase">Users</div><div class="text-2xl font-bold mt-1">${S.users.length}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400 uppercase">Orders</div><div class="text-2xl font-bold mt-1">${S.orders.length}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400 uppercase">Total Balance</div><div class="text-2xl font-bold mt-1 text-green-600">${money(totalBal)}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400 uppercase">Pending Deposits</div><div class="text-2xl font-bold mt-1 text-yellow-600">${pending}</div></div>
+  `;
+  $('#dash-orders').innerHTML = S.orders.slice(0,5).map(o=>`
+    <div class="flex justify-between py-1.5 border-b border-gray-50 last:border-0">
+      <span>${o.kind} · ${o.country}</span>
+      <span class="font-medium">${money(o.price)}</span>
+    </div>
+  `).join('') || '<div class="text-gray-400">No orders</div>';
+  $('#dash-deposits').innerHTML = S.deposits.filter(d=>d.status==='pending').map(d=>`
+    <div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+      <span>User ${d.user} · ${money(d.amount)}</span>
+      <div class="flex gap-1">
+        <button onclick="approveDep(${d.id})" class="btn btn-green text-xs py-1 px-2">✓</button>
+        <button onclick="rejectDep(${d.id})" class="btn btn-red text-xs py-1 px-2">✗</button>
+      </div>
+    </div>
+  `).join('') || '<div class="text-gray-400">No pending</div>';
+}
+
+function renderUsers() {
+  const q = ($('#user-search')?.value||'').toLowerCase();
+  const list = S.users.filter(u => !q || String(u.id).includes(q) || (u.name||'').toLowerCase().includes(q) || (u.username||'').toLowerCase().includes(q));
+  $('#users-tbody').innerHTML = list.map(u => `
+    <tr>
+      <td class="font-mono text-xs">${u.id}</td>
+      <td><div class="font-medium">${u.name||'—'}</div><div class="text-xs text-gray-400">@${u.username||'—'}</div><div class="text-xs text-gray-400">${u.email||''}</div></td>
+      <td class="font-semibold">${money(u.balance)}</td>
+      <td class="text-gray-500">${money(u.deposited)}</td>
+      <td>${u.banned?'<span class="badge badge-red">Banned</span>':u.frozen?'<span class="badge badge-yellow">Frozen</span>':'<span class="badge badge-green">Active</span>'}</td>
+      <td>
+        <div class="flex gap-1 flex-wrap">
+          <button onclick="editUser(${u.id})" class="btn btn-dark text-xs py-1 px-2">Edit User</button>
+          <button onclick="viewUser(${u.id})" class="btn btn-green text-xs py-1 px-2">View User</button>
+          <button onclick="adjustBal(${u.id})" class="btn btn-gray text-xs py-1 px-2">Balance</button>
+          <button onclick="toggleBan(${u.id})" class="btn ${u.banned?'btn-green':'btn-red'} text-xs py-1 px-2">${u.banned?'Unban':'Ban'}</button>
+          <button onclick="toggleFreeze(${u.id})" class="btn btn-gray text-xs py-1 px-2">${u.frozen?'Unfreeze':'Freeze'}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">No users</td></tr>';
+}
+
+function renderOrders() {
+  $('#orders-tbody').innerHTML = S.orders.map(o => `
+    <tr>
+      <td class="font-mono text-xs">${o.id}</td>
+      <td>${o.user}</td>
+      <td>${o.kind}</td>
+      <td>${o.country||o.name||'—'}</td>
+      <td class="font-mono text-xs">${o.phone||'—'}</td>
+      <td class="font-semibold">${money(o.price)}</td>
+      <td><span class="badge ${o.status==='DONE'?'badge-green':o.status==='WAIT_CODE'?'badge-yellow':'badge-red'}">${o.status}</span></td>
+      <td class="text-xs text-gray-400">${o.date||''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">No orders</td></tr>';
+}
+
+function renderDeposits() {
+  $('#deps-tbody').innerHTML = S.deposits.map(d => `
+    <tr>
+      <td>${d.id}</td>
+      <td>${d.user}</td>
+      <td class="font-semibold">${money(d.amount)}</td>
+      <td>${d.method}</td>
+      <td class="font-mono text-xs">${d.utr||'—'}</td>
+      <td><span class="badge ${d.status==='success'?'badge-green':d.status==='pending'?'badge-yellow':'badge-red'}">${d.status}</span></td>
+      <td class="text-xs text-gray-400">${d.date||''}</td>
+      <td>
+        ${d.status==='pending'?`
+          <button onclick="approveDep(${d.id})" class="btn btn-green text-xs py-1 px-2">Approve</button>
+          <button onclick="rejectDep(${d.id})" class="btn btn-red text-xs py-1 px-2">Reject</button>
+        `:'—'}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">No deposits</td></tr>';
+}
+
+function renderStock() {
+  $('#stock-tbody').innerHTML = S.stock.map((s,i) => `
+    <tr>
+      <td class="font-mono text-xs">${s.phone}</td>
+      <td>${s.country}</td>
+      <td>${s.year}</td>
+      <td>${s.cat}</td>
+      <td>${money(s.price)}</td>
+      <td>${s.twofa}</td>
+      <td><span class="badge ${s.available?'badge-green':'badge-gray'}">${s.available?'Available':'Sold'}</span></td>
+      <td><button onclick="removeStock(${i})" class="btn btn-red text-xs py-1 px-2">Remove</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">No stock</td></tr>';
+}
+
+function renderDigital() {
+  $('#digital-tbody').innerHTML = S.digital.map((p,i) => `
+    <tr>
+      <td>${p.id}</td>
+      <td class="font-medium">${p.name}</td>
+      <td>${money(p.price)}</td>
+      <td><span class="badge ${p.active?'badge-green':'badge-gray'}">${p.active?'Active':'Off'}</span></td>
+      <td>
+        <button onclick="toggleDigital(${i})" class="btn btn-gray text-xs py-1 px-2">${p.active?'Disable':'Enable'}</button>
+        <button onclick="removeDigital(${i})" class="btn btn-red text-xs py-1 px-2">Delete</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">No products</td></tr>';
+}
+
+function renderRedeem() {
+  $('#redeem-tbody').innerHTML = S.redeem.map((r,i) => `
+    <tr>
+      <td class="font-mono font-medium">${r.code}</td>
+      <td>${money(r.amount)}</td>
+      <td>${r.used} / ${r.max}</td>
+      <td><span class="badge ${r.active?'badge-green':'badge-gray'}">${r.active?'Active':'Off'}</span></td>
+      <td>
+        <button onclick="toggleRedeem(${i})" class="btn btn-gray text-xs py-1 px-2">${r.active?'Disable':'Enable'}</button>
+        <button onclick="removeRedeem(${i})" class="btn btn-red text-xs py-1 px-2">Delete</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="text-center text-gray-400 py-8">No codes</td></tr>';
+}
+
+function renderApiKeys() {
+  $('#apikeys-tbody').innerHTML = S.apikeys.map((k,i) => `
+    <tr>
+      <td>${k.id}</td>
+      <td>${k.owner}</td>
+      <td class="font-mono text-xs">${k.prefix}</td>
+      <td><span class="badge ${k.status==='active'?'badge-green':'badge-red'}">${k.status}</span></td>
+      <td class="text-xs">${k.expires}</td>
+      <td>
+        <button onclick="toggleApiKey(${i})" class="btn btn-gray text-xs py-1 px-2">${k.status==='active'?'Stop':'Resume'}</button>
+        <button onclick="removeApiKey(${i})" class="btn btn-red text-xs py-1 px-2">Delete</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">No API keys</td></tr>';
+}
+
+const PERMS = [['p_add_stock','Add Stock'],['p_manage_stock','Manage Stock'],['p_stats','Stats & Broadcast'],['p_bal','Balance & Users'],['p_settings','Settings']];
+function renderAdmins() {
+  $('#admins-tbody').innerHTML = S.admins.map((a,i) => `
+    <tr>
+      <td class="font-medium">${a.username||a.id}</td>
+      <td class="text-xs">
+        <div class="flex flex-col gap-1">
+        ${PERMS.map(([k,l])=>`<label class="flex items-center gap-2"><input type="checkbox" ${a[k]?'checked':''} onchange="toggleAdminPerm(${i},'${k}')"> ${l}</label>`).join('')}
+        </div>
+      </td>
+      <td>
+        <button onclick="changeAdminPass(${i})" class="btn btn-gray text-xs py-1 px-2">Password</button>
+        <button onclick="removeAdmin(${i})" class="btn btn-red text-xs py-1 px-2">Remove</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" class="text-center text-gray-400 py-8">No sub-admins</td></tr>';
+}
+
+function renderStats() {
+  const totalBal = S.users.reduce((a,u)=>a+(u.balance||0),0);
+  const totalDep = S.users.reduce((a,u)=>a+(u.deposited||0),0);
+  const sales = S.orders.reduce((a,o)=>a+(o.price||0),0);
+  $('#stats-detail').innerHTML = `
+    <div class="card p-4"><div class="text-xs text-gray-400">Total Users</div><div class="text-2xl font-bold mt-1">${S.users.length}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400">Total Sales</div><div class="text-2xl font-bold mt-1">${money(sales)}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400">Total Deposited</div><div class="text-2xl font-bold mt-1">${money(totalDep)}</div></div>
+    <div class="card p-4"><div class="text-xs text-gray-400">Wallet Sum</div><div class="text-2xl font-bold mt-1 text-green-600">${money(totalBal)}</div></div>
+  `;
+  const today = S.orders.filter(o => (o.date||'').startsWith(new Date().toISOString().slice(0,10)));
+  $('#today-report').innerHTML = `
+    <p>Orders today: <b>${today.length}</b></p>
+    <p>Sales today: <b>${money(today.reduce((a,o)=>a+(o.price||0),0))}</b></p>
+    <p>Pending deposits: <b>${S.deposits.filter(d=>d.status==='pending').length}</b></p>
+  `;
+}
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+function adjustBal(uid) {
+  const amt = prompt('Enter new balance (or +100 / -50 to add/sub):');
+  if (amt===null) return;
+  const u = S.users.find(x=>x.id===uid);
+  if (!u) return;
+  if (amt.startsWith('+')) u.balance += parseFloat(amt.slice(1))||0;
+  else if (amt.startsWith('-')) u.balance = Math.max(0, u.balance - (parseFloat(amt.slice(1))||0));
+  else u.balance = parseFloat(amt)||0;
+  saveAll(); renderUsers(); toast('Balance updated');
+}
+function toggleBan(uid) {
+  const u = S.users.find(x=>x.id===uid);
+  if (!u) return;
+  u.banned = u.banned ? 0 : 1;
+  saveAll(); renderUsers(); toast(u.banned?'User banned':'User unbanned');
+}
+function toggleFreeze(uid) {
+  const u = S.users.find(x=>x.id===uid);
+  if (!u) return;
+  u.frozen = u.frozen ? 0 : 1;
+  saveAll(); renderUsers(); toast(u.frozen?'User frozen':'User unfrozen');
+}
+function approveDep(id) {
+  const d = S.deposits.find(x=>x.id===id);
+  if (!d) return;
+  d.status = 'success';
+  const u = S.users.find(x=>x.id===d.user);
+  if (u) { u.balance += d.amount; u.deposited += d.amount; }
+  saveAll(); renderDeposits(); renderDashboard(); toast('Deposit approved');
+}
+function rejectDep(id) {
+  const d = S.deposits.find(x=>x.id===id);
+  if (!d) return;
+  d.status = 'rejected';
+  saveAll(); renderDeposits(); renderDashboard(); toast('Deposit rejected');
+}
+function removeStock(i) { S.stock.splice(i,1); saveAll(); renderStock(); toast('Removed'); }
+function toggleDigital(i) { S.digital[i].active = S.digital[i].active?0:1; saveAll(); renderDigital(); }
+function removeDigital(i) { S.digital.splice(i,1); saveAll(); renderDigital(); toast('Deleted'); }
+function toggleRedeem(i) { S.redeem[i].active = S.redeem[i].active?0:1; saveAll(); renderRedeem(); }
+function removeRedeem(i) { S.redeem.splice(i,1); saveAll(); renderRedeem(); toast('Deleted'); }
+function toggleApiKey(i) { S.apikeys[i].status = S.apikeys[i].status==='active'?'suspended':'active'; saveAll(); renderApiKeys(); }
+function removeApiKey(i) { S.apikeys.splice(i,1); saveAll(); renderApiKeys(); toast('Deleted'); }
+function removeAdmin(i) { S.admins.splice(i,1); saveAll(); renderAdmins(); toast('Removed'); }
+
+function doBroadcast() {
+  const msg = ($('#bc-msg').value||'').trim();
+  if (!msg) { toast('Write a message', true); return; }
+  toast('Broadcast queued for ' + S.users.length + ' users');
+  $('#bc-msg').value = '';
+}
+
+function saveSetting(type) {
+  toast('Settings saved (' + type + ')');
+}
+
+/* Modals */
+function showModal(type) {
+  const root = $('#modal-root');
+  let html = '';
+  if (type==='add-stock') {
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Add Stock</h2>
+        <input id="m-phone" class="input" placeholder="Phone +91…">
+        <input id="m-country" class="input" placeholder="Country">
+        <input id="m-year" class="input" type="number" placeholder="Year">
+        <input id="m-price" class="input" type="number" placeholder="Price">
+        <input id="m-cat" class="input" placeholder="Category (Good/Premium)">
+        <div class="flex gap-2">
+          <button onclick="addStock()" class="btn btn-dark flex-1">Add</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='add-digital') {
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Add Product</h2>
+        <input id="m-dname" class="input" placeholder="Product name">
+        <input id="m-dprice" class="input" type="number" placeholder="Price">
+        <div class="flex gap-2">
+          <button onclick="addDigital()" class="btn btn-dark flex-1">Add</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='add-redeem') {
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Create Redeem Code</h2>
+        <input id="m-rcode" class="input uppercase" placeholder="CODE">
+        <input id="m-ramt" class="input" type="number" placeholder="Amount ₹">
+        <input id="m-rmax" class="input" type="number" placeholder="Max users" value="1">
+        <div class="flex gap-2">
+          <button onclick="addRedeem()" class="btn btn-dark flex-1">Create</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='add-apikey') {
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Create API Key</h2>
+        <input id="m-akey-user" class="input" placeholder="User ID">
+        <input id="m-akey-days" class="input" type="number" placeholder="Valid days" value="30">
+        <div class="flex gap-2">
+          <button onclick="addApiKey()" class="btn btn-dark flex-1">Create</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='add-admin') {
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Add Sub-Admin</h2>
+        <input id="m-auser" class="input" placeholder="Username">
+        <input id="m-apass" class="input" placeholder="Password">
+        <div class="text-xs text-gray-500 mt-1">Permissions</div>
+        ${PERMS.map(([k,l])=>`<label class="flex items-center gap-2 text-sm"><input type="checkbox" id="m-${k}" checked> ${l}</label>`).join('')}
+        <div class="flex gap-2">
+          <button onclick="addAdmin()" class="btn btn-dark flex-1">Add</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='add-smm-service' || type==='bulk-smm-service') {
+    const bulk = type==='bulk-smm-service';
+    if (!S.smm.cats.length) { toast('Create a category first'); return; }
+    const catOpts = S.smm.cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">${bulk?'Bulk Add Services':'Add Service'}</h2>
+        <select id="ms-cat" class="input">${catOpts}</select>
+        ${bulk ? `
+          <textarea id="ms-ids" class="input" rows="3" placeholder="Service IDs separated by space, comma or new line (e.g. 2222 6478 22461)"></textarea>
+          <input id="ms-markup" type="number" class="input" placeholder="Profit margin / markup %" value="10">
+          <p class="text-xs text-gray-400">Bulk add fetches details from the SMM API, so it needs the backend. Without it, services are added with the ID only; edit name and rate afterwards.</p>
+        ` : `
+          <input id="ms-id" type="number" class="input" placeholder="SMM Service ID">
+          <input id="ms-name" class="input" placeholder="Service name">
+          <input id="ms-rate" type="number" step="0.01" class="input" placeholder="API rate per 1000 (₹)">
+          <input id="ms-markup" type="number" class="input" placeholder="Profit margin / markup %" value="10">
+          <div class="grid grid-cols-2 gap-2"><input id="ms-min" type="number" class="input" placeholder="Min qty" value="10"><input id="ms-max" type="number" class="input" placeholder="Max qty" value="10000"></div>
+          <textarea id="ms-desc" class="input" rows="2" placeholder="Description (optional)"></textarea>
+        `}
+        <div class="flex gap-2">
+          <button onclick="${bulk?'bulkAddSmm()':'addSmmService()'}" class="btn btn-dark flex-1">Add</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  } else if (type==='edit-smm-service') {
+    const v=S.smm.services.find(x=>x.id===window._editSmm); if(!v) return;
+    const catOpts = S.smm.cats.map(c=>`<option value="${c.id}" ${c.id===v.cat?'selected':''}>${c.name}</option>`).join('');
+    html = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal space-y-3">
+        <h2 class="font-bold text-lg">Edit Service ${v.id}</h2>
+        <input id="es-name" class="input" placeholder="Name" value="${(v.name||'').replace(/"/g,'&quot;')}">
+        <textarea id="es-desc" class="input" rows="2" placeholder="Description">${v.desc||''}</textarea>
+        <input id="es-rate" type="number" step="0.01" class="input" placeholder="Price (rate per 1k)" value="${v.rate}">
+        <select id="es-cat" class="input">${catOpts}</select>
+        <div class="grid grid-cols-2 gap-2"><input id="es-min" type="number" class="input" value="${v.min}"><input id="es-max" type="number" class="input" value="${v.max}"></div>
+        <div class="flex gap-2">
+          <button onclick="saveSmmService()" class="btn btn-dark flex-1">Save</button>
+          <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+        </div>
+      </div></div>`;
+  }
+  root.innerHTML = html;
+}
+
+
+/* ---------- Settings ---------- */
+function renderSettings() {
+  $('#set-support').value = S.settings.support||'';
+  $('#set-support-ch').value = S.settings.supportCh||'';
+  $('#set-usdt-rate').value = S.settings.usdtRate||0;
+}
+function saveSetting(type) {
+  if (type==='support') { S.settings.support=$('#set-support').value.trim(); S.settings.supportCh=$('#set-support-ch').value.trim(); }
+  if (type==='usdt') { S.settings.usdtRate=parseFloat($('#set-usdt-rate').value)||0; }
+  saveAll(); toast('Settings saved');
+}
+
+/* ---------- Server APIs ---------- */
+function maskSecret(v){ v=v||''; return v.length>8 ? v.slice(0,4)+'••••'+v.slice(-4) : (v?'••••':'—'); }
+function renderServers() {
+  $('#servers-grid').innerHTML = S.servers.map((v,i) => {
+    const ok = v.url && (v.key || (v.no===3 && S.servers[1].key));
+    return `<div class="card p-5 space-y-3">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold">${v.label}</h3>
+        <span class="badge ${ok?'badge-green':'badge-red'}">${ok?'Configured':'Not configured'}</span>
+      </div>
+      <p class="text-xs text-gray-500">${v.about}</p>
+      <div><label class="text-xs text-gray-500">API URL</label><input id="sv-url-${i}" class="input mt-1" value="${v.url||''}" placeholder="https://..."></div>
+      <div><label class="text-xs text-gray-500">API Key <span class="text-gray-400">(saved: ${maskSecret(v.key)})</span></label><input id="sv-key-${i}" class="input mt-1" type="password" placeholder="Leave blank to keep current key"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs text-gray-500">Profit Margin %</label><input id="sv-mar-${i}" type="number" step="0.01" class="input mt-1" value="${v.margin||0}"></div>
+        <div><label class="text-xs text-gray-500">Low Balance Alert (0 = off)</label><input id="sv-low-${i}" type="number" class="input mt-1" value="${v.lowbal||0}"></div>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="saveServer(${i})" class="btn btn-dark text-sm flex-1">Save</button>
+        <button onclick="testServer(${i})" class="btn btn-green text-sm">Test API</button>
+        <button onclick="removeServerApi(${i})" class="btn btn-red text-sm">Remove API</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function saveServer(i) {
+  const v=S.servers[i];
+  v.url=$('#sv-url-'+i).value.trim();
+  const k=$('#sv-key-'+i).value.trim(); if (k) v.key=k;
+  v.margin=parseFloat($('#sv-mar-'+i).value)||0;
+  v.lowbal=parseFloat($('#sv-low-'+i).value)||0;
+  saveAll(); renderServers(); toast(v.label+' saved');
+}
+function testServer(i) {
+  const v=S.servers[i];
+  const key = v.key || (v.no===3 ? S.servers[1].key : '');
+  if (!v.url) return toast('API URL is empty');
+  if (!/^https?:\/\//.test(v.url)) return toast('API URL must start with http(s)://');
+  if (!key) return toast('API key is empty');
+  toast('Format OK. A live provider test needs the backend.');
+}
+function removeServerApi(i) {
+  if (!confirm('Remove API URL and key for '+S.servers[i].label+'?')) return;
+  S.servers[i].url=''; S.servers[i].key=''; saveAll(); renderServers(); toast('API removed');
+}
+
+/* ---------- Users: edit + view ---------- */
+function editUser(id) {
+  const u=S.users.find(x=>x.id===id); if(!u) return;
+  $('#modal-root').innerHTML = `<div class="modal-bg" onclick="if(event.target===this)closeModal()">
+    <div class="modal space-y-3">
+      <h2 class="font-bold text-lg">Edit User ${u.id}</h2>
+      <input id="eu-name" class="input" placeholder="Name" value="${u.name||''}">
+      <input id="eu-username" class="input" placeholder="Username" value="${u.username||''}">
+      <input id="eu-email" class="input" placeholder="Gmail / Email" value="${u.email||''}">
+      <input id="eu-pass" class="input" placeholder="New password (blank = keep current)">
+      <input id="eu-bal" type="number" class="input" placeholder="Balance" value="${u.balance||0}">
+      <label class="flex items-center gap-2 text-sm"><input id="eu-ban" type="checkbox" ${u.banned?'checked':''}> Banned</label>
+      <label class="flex items-center gap-2 text-sm"><input id="eu-frz" type="checkbox" ${u.frozen?'checked':''}> Frozen</label>
+      <div class="flex gap-2">
+        <button onclick="saveUser(${u.id})" class="btn btn-dark flex-1">Save</button>
+        <button onclick="closeModal()" class="btn btn-gray flex-1">Cancel</button>
+      </div>
+    </div></div>`;
+}
+function saveUser(id) {
+  const u=S.users.find(x=>x.id===id); if(!u) return;
+  u.name=$('#eu-name').value.trim(); u.username=$('#eu-username').value.trim();
+  u.email=$('#eu-email').value.trim();
+  const pw=$('#eu-pass').value; if (pw) u.password=pw;
+  u.balance=parseFloat($('#eu-bal').value)||0;
+  u.banned=$('#eu-ban').checked?1:0; u.frozen=$('#eu-frz').checked?1:0;
+  saveAll(); closeModal(); renderUsers(); toast('User updated');
+}
+function viewUser(id) {
+  const u=S.users.find(x=>x.id===id); if(!u) return;
+  localStorage.setItem('ats_view_as', JSON.stringify({id:u.id, ts:Date.now()}));
+  window.open('index-2.html#viewas='+u.id, '_blank');
+}
+
+/* ---------- Social Media Service ---------- */
+function renderSmm() {
+  $('#smm-url').value = S.smm.url||'';
+  $('#smm-key-mask').textContent = S.smm.key ? '(saved: '+maskSecret(S.smm.key)+')' : '';
+  $('#smm-cats').innerHTML = S.smm.cats.map(c => `
+    <div class="flex justify-between items-center border border-gray-100 rounded-lg px-3 py-2">
+      <div><span class="text-xs text-gray-400">#${c.id}</span> <span class="font-medium">${c.name}</span></div>
+      <button onclick="removeSmmCat(${c.id})" class="btn btn-red text-xs py-1 px-2">Remove</button>
+    </div>`).join('') || '<div class="text-sm text-gray-400">No categories yet</div>';
+  $('#smm-tbody').innerHTML = S.smm.services.map(v => {
+    const c = S.smm.cats.find(x=>x.id===v.cat);
+    return `<tr>
+      <td class="font-mono text-xs">${v.id}</td>
+      <td class="font-medium">${v.name}</td>
+      <td class="text-xs">${c?c.name:'—'}</td>
+      <td>${money(v.rate)}</td>
+      <td class="text-xs">${v.min}–${v.max}</td>
+      <td><div class="flex gap-1">
+        <button onclick="editSmmService(${v.id})" class="btn btn-gray text-xs py-1 px-2">Edit</button>
+        <button onclick="removeSmmService(${v.id})" class="btn btn-red text-xs py-1 px-2">Delete</button>
+      </div></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">No services added yet</td></tr>';
+}
+function saveSmmApi() {
+  let u=$('#smm-url').value.trim();
+  if (!u) return toast('API URL is required');
+  S.smm.url=u;
+  const k=$('#smm-key').value.trim(); if (k) S.smm.key=k;
+  saveAll(); renderSmm(); toast('SMM API credentials updated');
+}
+function testSmmApi() {
+  if (!S.smm.url || !S.smm.key) return toast('SMM API URL or Key not configured');
+  if (!/^https?:\/\//.test(S.smm.url)) return toast('API URL must start with http(s)://');
+  toast('Format OK. A live panel test needs the backend.');
+}
+function addSmmCat() {
+  const n=prompt('Enter Category Name (e.g. Telegram):'); if(!n||!n.trim()) return;
+  const id=(S.smm.cats.reduce((m,c)=>Math.max(m,c.id),0))+1;
+  S.smm.cats.push({id, name:n.trim()}); saveAll(); renderSmm(); toast('Category created');
+}
+function removeSmmCat(id) {
+  if (!confirm('Remove this category and all its services?')) return;
+  S.smm.cats=S.smm.cats.filter(c=>c.id!==id);
+  S.smm.services=S.smm.services.filter(v=>v.cat!==id);
+  saveAll(); renderSmm(); toast('Category and its services removed');
+}
+function addSmmService() {
+  const id=parseInt($('#ms-id').value), name=$('#ms-name').value.trim();
+  const apiRate=parseFloat($('#ms-rate').value), markup=parseFloat($('#ms-markup').value)||0;
+  if (!id || !name || isNaN(apiRate)) return toast('Service ID, name and rate are required');
+  if (S.smm.services.some(v=>v.id===id)) return toast('Service ID already exists');
+  S.smm.services.push({id, cat:parseInt($('#ms-cat').value), name,
+    rate:Math.round(apiRate*(1+markup/100)*100)/100,
+    min:parseInt($('#ms-min').value)||10, max:parseInt($('#ms-max').value)||10000,
+    desc:$('#ms-desc').value.trim()});
+  saveAll(); closeModal(); renderSmm(); toast('Service added');
+}
+function bulkAddSmm() {
+  const ids=($('#ms-ids').value.match(/\d+/g)||[]).map(Number);
+  if (!ids.length) return toast('No valid Service IDs found');
+  const cat=parseInt($('#ms-cat').value); let n=0;
+  ids.forEach(id=>{ if(!S.smm.services.some(v=>v.id===id)){ S.smm.services.push({id,cat,name:'Service '+id,rate:0,min:10,max:10000,desc:''}); n++; } });
+  saveAll(); closeModal(); renderSmm(); toast(n+' service(s) added. Edit name and rate.');
+}
+function editSmmService(id){ window._editSmm=id; showModal('edit-smm-service'); }
+function saveSmmService() {
+  const v=S.smm.services.find(x=>x.id===window._editSmm); if(!v) return;
+  v.name=$('#es-name').value.trim()||v.name; v.desc=$('#es-desc').value.trim();
+  v.rate=parseFloat($('#es-rate').value)||0; v.cat=parseInt($('#es-cat').value);
+  v.min=parseInt($('#es-min').value)||10; v.max=parseInt($('#es-max').value)||10000;
+  saveAll(); closeModal(); renderSmm(); toast('Service updated');
+}
+function removeSmmService(id) {
+  if (!confirm('Delete service '+id+'?')) return;
+  S.smm.services=S.smm.services.filter(v=>v.id!==id); saveAll(); renderSmm(); toast('Service removed');
+}
+
+function closeModal() { $('#modal-root').innerHTML = ''; }
+
+function addStock() {
+  S.stock.push({
+    phone: $('#m-phone').value, country: $('#m-country').value,
+    year: $('#m-year').value, price: parseFloat($('#m-price').value)||0,
+    cat: $('#m-cat').value||'Good', twofa:'None', available:1
+  });
+  saveAll(); closeModal(); renderStock(); toast('Stock added');
+}
+function addDigital() {
+  S.digital.push({id: Date.now()%10000, name:$('#m-dname').value, price:parseFloat($('#m-dprice').value)||0, active:1});
+  saveAll(); closeModal(); renderDigital(); toast('Product added');
+}
+function addRedeem() {
+  S.redeem.push({code:($('#m-rcode').value||'').toUpperCase(), amount:parseFloat($('#m-ramt').value)||0, used:0, max:parseInt($('#m-rmax').value)||1, active:1});
+  saveAll(); closeModal(); renderRedeem(); toast('Code created');
+}
+function addApiKey() {
+  const uid = parseInt($('#m-akey-user').value);
+  const days = parseInt($('#m-akey-days').value)||30;
+  const exp = new Date(); exp.setDate(exp.getDate()+days);
+  S.apikeys.push({id:S.apikeys.length+1, owner:uid, prefix:'ats_'+Math.random().toString(36).slice(2,8)+'…', status:'active', expires:exp.toISOString().slice(0,10)});
+  saveAll(); closeModal(); renderApiKeys(); toast('API key created');
+}
+function addAdmin() {
+  const username=$('#m-auser').value.trim(), password=$('#m-apass').value;
+  if (!username || !password) return toast('Username and password are required');
+  if (S.admins.some(a=>a.username===username)) return toast('Username already exists');
+  const a={id:Date.now(), username, password};
+  PERMS.forEach(([k])=>{ a[k]=$('#m-'+k).checked?1:0; });
+  S.admins.push(a);
+  saveAll(); closeModal(); renderAdmins(); toast('Admin added');
+}
+function toggleAdminPerm(i,k){ S.admins[i][k]=S.admins[i][k]?0:1; saveAll(); toast('Permission updated'); }
+function changeAdminPass(i){
+  const pw=prompt('New password for '+S.admins[i].username+':'); if(!pw) return;
+  S.admins[i].password=pw; saveAll(); toast('Password updated');
+}
+
+/* INIT */
+(function() {
+  seed();
+  const session = localStorage.getItem('ats_admin_session');
+  if (session) {
+    S.admin = {username:session};
+    showAdmin();
+  }
+})();
+</script>
+</body>
+</html>

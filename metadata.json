@@ -1,0 +1,8 @@
+{
+  "name": "Aaditya TG Store",
+  "description": "Premium Telegram accounts, WhatsApp & App OTP services, digital products, SMM panel, and integrated admin console.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
