@@ -80,7 +80,7 @@ export const StoreLayout: React.FC<StoreLayoutProps> = ({ children }) => {
               <Send className="w-4 h-4 -translate-x-[0.5px] translate-y-[0.5px]" />
             </span>
             <span>
-              Aaditya<span className="text-emerald-600">.shop</span>
+              AadityaTg<span className="text-emerald-600">.Store</span>
             </span>
           </button>
 

@@ -57,7 +57,7 @@ export const AdminAuth: React.FC = () => {
               <h1 className="font-display text-xl font-bold text-slate-900">
                 {adminSetupRequired ? 'Set Up Primary Admin' : 'Admin Console'}
               </h1>
-              <p className="text-xs text-slate-500">Aaditya.shop</p>
+              <p className="text-xs text-slate-500">AadityaTg.Store</p>
             </div>
           </div>
 

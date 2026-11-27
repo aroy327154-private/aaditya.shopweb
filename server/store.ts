@@ -294,11 +294,11 @@ const INITIAL_DB: PersistedDb = {
   },
   payments: {
     manualUpi: '',
-    manualName: 'Aaditya.shop',
+    manualName: 'AadityaTg.Store',
     manualEnabled: true,
     manualQr: '',
     fampayUpi: '',
-    fampayName: 'Aaditya.shop',
+    fampayName: 'AadityaTg.Store',
     fampayEnabled: false,
     fampayQr: '',
     bharatpeUpi: '',

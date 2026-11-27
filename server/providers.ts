@@ -1283,7 +1283,7 @@ async function callLolzteamJson(
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
-    'User-Agent': 'AadityaShopBot/2.0 (LZT-Market)',
+    'User-Agent': 'AadityaTgStoreBot/2.0 (LZT-Market)',
   };
   let bodyStr: string | undefined;
   if (method === 'POST') {

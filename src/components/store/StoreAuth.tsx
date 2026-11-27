@@ -112,7 +112,7 @@ export const StoreAuth: React.FC = () => {
               <Send className="w-4 h-4 -translate-x-[0.5px] translate-y-[0.5px]" />
             </span>
             <span>
-              Aaditya<span className="text-emerald-600">.shop</span>
+              AadityaTg<span className="text-emerald-600">.Store</span>
             </span>
           </button>
 
@@ -209,7 +209,7 @@ export const StoreAuth: React.FC = () => {
                     <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
                         <div className="text-xs font-medium text-emerald-200/90">
-                          Aaditya.shop · Live Marketplace Feed
+                          AadityaTg.Store · Live Marketplace Feed
                         </div>
                         <div className="font-display text-xl sm:text-2xl font-bold tracking-tight mt-1">
                           Instant global inventory &amp; OTP delivery
@@ -393,7 +393,7 @@ export const StoreAuth: React.FC = () => {
               <div className="glass-card rounded-3xl p-6 sm:p-8">
                 <h1 className="font-display text-2xl font-bold text-slate-900">Create account</h1>
                 <p className="text-sm text-slate-500 mt-1">
-                  Join Aaditya.shop to access OTP numbers, accounts, and digital services.
+                  Join AadityaTg.Store to access OTP numbers, accounts, and digital services.
                 </p>
 
                 <div className="mt-6">

@@ -45,7 +45,7 @@ export const DepositView: React.FC = () => {
         enabled: Boolean(p?.manualEnabled),
         customQr: p?.manualQr || '',
         qrPayload: p?.manualUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.manualUpi)}&pn=${encodeURIComponent(p.manualName || 'Aaditya.shop')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.manualUpi)}&pn=${encodeURIComponent(p.manualName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
           : '',
       },
       {
@@ -56,7 +56,7 @@ export const DepositView: React.FC = () => {
         enabled: Boolean(p?.fampayEnabled),
         customQr: p?.fampayQr || '',
         qrPayload: p?.fampayUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.fampayUpi)}&pn=${encodeURIComponent(p.fampayName || 'Aaditya.shop')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.fampayUpi)}&pn=${encodeURIComponent(p.fampayName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
           : '',
       },
       {
@@ -67,7 +67,7 @@ export const DepositView: React.FC = () => {
         enabled: Boolean(p?.bharatpeEnabled),
         customQr: p?.bharatpeQr || '',
         qrPayload: p?.bharatpeUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.bharatpeUpi)}&pn=${encodeURIComponent('Aaditya.shop')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.bharatpeUpi)}&pn=${encodeURIComponent('AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
           : '',
       },
       {
