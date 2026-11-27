@@ -52,7 +52,7 @@ export const AdminDashboardView: React.FC = () => {
     <div className="space-y-6">
       {/* Executive Command Banner */}
       <section className="relative overflow-hidden rounded-3xl bg-[#04120e] text-white p-6 sm:p-7 shadow-[0_24px_48px_-24px_rgba(4,18,14,0.7)] border border-emerald-500/20">
-        <LiveAmbientBackdrop variant="hero" />
+        <LiveAmbientBackdrop variant="hero" className="absolute inset-0 w-full h-full" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="space-y-1.5">
             <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-white">

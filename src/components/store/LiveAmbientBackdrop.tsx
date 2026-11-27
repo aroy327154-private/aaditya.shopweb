@@ -13,7 +13,7 @@ interface LiveAmbientBackdropProps {
  */
 export const LiveAmbientBackdrop: React.FC<LiveAmbientBackdropProps> = ({
   variant = 'ambient',
-  className = '',
+  className = 'absolute inset-0 w-full h-full',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 

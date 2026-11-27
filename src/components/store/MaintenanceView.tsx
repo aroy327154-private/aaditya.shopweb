@@ -15,8 +15,8 @@ export const MaintenanceView: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen text-white flex flex-col justify-between overflow-hidden">
-      <LiveAmbientBackdrop variant="hero" className="fixed inset-0 w-full h-full -z-10" />
+    <div className="relative min-h-screen bg-[#04110e] text-white flex flex-col justify-between overflow-hidden">
+      <LiveAmbientBackdrop variant="hero" className="fixed inset-0 w-full h-full z-0" />
 
       <header className="relative z-10 px-5 sm:px-8 h-16 flex items-center justify-between max-w-6xl w-full mx-auto">
         <div className="inline-flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-white">

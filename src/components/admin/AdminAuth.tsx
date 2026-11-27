@@ -39,7 +39,7 @@ export const AdminAuth: React.FC = () => {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#04110e] text-white flex flex-col justify-center px-4 py-10">
-      <LiveAmbientBackdrop variant="hero" />
+      <LiveAmbientBackdrop variant="hero" className="absolute inset-0 w-full h-full" />
 
       <div className="relative z-10 max-w-sm w-full mx-auto">
         <button
