@@ -65,10 +65,17 @@ import {
 } from './server/githubBackup.ts';
 import {
   doesEmailMatchPayment,
+  extractPaymentIdentifiers,
   fetchRecentPaymentEmails,
   testImapConnection,
   verifySingleDepositViaImap,
 } from './server/imapVerifier.ts';
+import {
+  doesBharatpeTxMatchDeposit,
+  fetchBharatpeTransactions,
+  testBharatpeConnection,
+  verifySingleDepositViaBharatpe,
+} from './server/bharatpeVerifier.ts';
 
 dotenv.config();
 
@@ -465,8 +472,12 @@ function refundOrderOnce(order: ServerOrder, user: ServerUser | undefined): bool
 
 function creditDepositOnce(
   dep: ServerDeposit,
-  verifiedBy: 'imap' | 'admin',
-  matchedEmailUid?: number,
+  verifiedBy: 'imap' | 'bharatpe' | 'admin',
+  opts?: {
+    matchedEmailUid?: number;
+    matchedBharatpeTxId?: string;
+    extraUtrs?: string[];
+  },
 ): boolean {
   const db = getDb();
   if (dep.status !== 'pending' || dep.isRedeem) return false;
@@ -476,21 +487,46 @@ function creditDepositOnce(
 
   if (!Array.isArray(db.usedUtrs)) db.usedUtrs = [];
   if (!Array.isArray(db.usedEmailUids)) db.usedEmailUids = [];
+  if (!Array.isArray(db.usedInvoiceIds)) db.usedInvoiceIds = [];
+  if (!Array.isArray(db.usedBharatpeTxIds)) db.usedBharatpeTxIds = [];
 
   if (db.usedUtrs.includes(canonUtr)) {
     return false;
   }
-  if (typeof matchedEmailUid === 'number' && db.usedEmailUids.includes(matchedEmailUid)) {
+  if (typeof opts?.matchedEmailUid === 'number' && db.usedEmailUids.includes(opts.matchedEmailUid)) {
+    return false;
+  }
+  const normBpTx = opts?.matchedBharatpeTxId ? normalizeUtr(opts.matchedBharatpeTxId) : '';
+  if (normBpTx && db.usedBharatpeTxIds.includes(normBpTx)) {
+    return false;
+  }
+  const normInv = dep.invoiceId ? normalizeUtr(dep.invoiceId) : '';
+  if (normInv && db.usedInvoiceIds.includes(normInv)) {
     return false;
   }
 
   dep.status = 'success';
   dep.verifiedBy = verifiedBy;
-  if (typeof matchedEmailUid === 'number') {
-    dep.matchedEmailUid = matchedEmailUid;
-    db.usedEmailUids.push(matchedEmailUid);
+  if (typeof opts?.matchedEmailUid === 'number') {
+    dep.matchedEmailUid = opts.matchedEmailUid;
+    db.usedEmailUids.push(opts.matchedEmailUid);
+  }
+  if (normBpTx) {
+    dep.matchedBharatpeTxId = normBpTx;
+    db.usedBharatpeTxIds.push(normBpTx);
+  }
+  if (normInv) {
+    db.usedInvoiceIds.push(normInv);
   }
   db.usedUtrs.push(canonUtr);
+  if (Array.isArray(opts?.extraUtrs)) {
+    for (const rawId of opts.extraUtrs) {
+      const normExtra = normalizeUtr(rawId);
+      if (normExtra.length >= 6 && !db.usedUtrs.includes(normExtra)) {
+        db.usedUtrs.push(normExtra);
+      }
+    }
+  }
 
   const u = db.users.find((x) => x.id === dep.userId);
   if (u && Number.isFinite(dep.amount) && dep.amount > 0) {
@@ -1338,11 +1374,12 @@ app.post('/api/deposits', async (req, res) => {
   const user = requireUser(req, res);
   if (!user) return;
 
-  const { method, amount, utr, screenshot } = req.body as {
+  const { method, amount, utr, screenshot, invoiceId } = req.body as {
     method?: string;
     amount?: number;
     utr?: string;
     screenshot?: string;
+    invoiceId?: string;
   };
   const numAmount = Number(amount);
   const cleanUtr = String(utr || '').trim();
@@ -1353,12 +1390,12 @@ app.post('/api/deposits', async (req, res) => {
   const p = db.payments;
   const methodLower = cleanMethod.toLowerCase();
   const methodCfg = methodLower.includes('fampay')
-    ? { label: 'Fampay UPI', enabled: Boolean(p.fampayEnabled), min: Number(p.fampayMin) || 10, max: Number(p.fampayMax) || 50000 }
+    ? { key: 'fampay' as const, label: 'Fampay UPI', enabled: Boolean(p.fampayEnabled), min: Number(p.fampayMin) || 10, max: Number(p.fampayMax) || 50000 }
     : methodLower.includes('bharatpe')
-      ? { label: 'BharatPe UPI', enabled: Boolean(p.bharatpeEnabled), min: Number(p.bharatpeMin) || 10, max: Number(p.bharatpeMax) || 50000 }
+      ? { key: 'bharatpe' as const, label: 'BharatPe UPI', enabled: Boolean(p.bharatpeEnabled), min: Number(p.bharatpeMin) || 10, max: Number(p.bharatpeMax) || 50000 }
       : methodLower.includes('usdt')
-        ? { label: 'USDT (TRC20)', enabled: Boolean(p.usdtEnabled), min: Number(p.usdtMin) || 100, max: Number(p.usdtMax) || 500000 }
-        : { label: 'UPI Manual', enabled: Boolean(p.manualEnabled), min: Number(p.manualMin) || 10, max: Number(p.manualMax) || 50000 };
+        ? { key: 'usdt' as const, label: 'USDT (TRC20)', enabled: Boolean(p.usdtEnabled), min: Number(p.usdtMin) || 100, max: Number(p.usdtMax) || 500000 }
+        : { key: 'manual' as const, label: 'UPI Manual', enabled: Boolean(p.manualEnabled), min: Number(p.manualMin) || 10, max: Number(p.manualMax) || 50000 };
 
   if (!methodCfg.enabled) {
     return res.status(400).json({ error: `${methodCfg.label} is currently disabled` });
@@ -1374,7 +1411,15 @@ app.post('/api/deposits', async (req, res) => {
     });
   }
   if (!cleanUtr || canonUtr.length < 6) {
-    return res.status(400).json({ error: 'Valid UTR / Transaction ID (min 6 chars) is required' });
+    return res.status(400).json({ error: 'Valid UTR / Payment ID (min 6 chars) is required' });
+  }
+
+  let cleanInvoiceId = '';
+  if (methodCfg.key === 'fampay' && typeof invoiceId === 'string' && invoiceId.trim()) {
+    const normalizedInv = invoiceId.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 32);
+    if (normalizedInv.length >= 6) {
+      cleanInvoiceId = normalizedInv;
+    }
   }
 
   const shotCheck = sanitizeScreenshotDataUrl(screenshot);
@@ -1383,7 +1428,7 @@ app.post('/api/deposits', async (req, res) => {
   }
 
   if (inFlightUtrLocks.has(canonUtr)) {
-    return res.status(409).json({ error: 'This UTR / Transaction ID is already being processed' });
+    return res.status(409).json({ error: 'This UTR / Payment ID is already being processed' });
   }
 
   const usedAlready = Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr);
@@ -1391,7 +1436,19 @@ app.post('/api/deposits', async (req, res) => {
     (d) => !d.isRedeem && d.status !== 'rejected' && normalizeUtr(d.utr) === canonUtr,
   );
   if (usedAlready || duplicate) {
-    return res.status(409).json({ error: 'This UTR / Transaction ID has already been used or submitted' });
+    return res.status(409).json({ error: 'This UTR / Payment ID has already been used or submitted' });
+  }
+
+  if (cleanInvoiceId) {
+    const normInv = normalizeUtr(cleanInvoiceId);
+    const invUsed =
+      (Array.isArray(db.usedInvoiceIds) && db.usedInvoiceIds.includes(normInv)) ||
+      db.deposits.some(
+        (d) => !d.isRedeem && d.status !== 'rejected' && d.invoiceId && normalizeUtr(d.invoiceId) === normInv,
+      );
+    if (invUsed) {
+      return res.status(409).json({ error: 'This FamPay Invoice ID has already been used. Please generate a new one.' });
+    }
   }
 
   const nextId = db.deposits.reduce((m, d) => Math.max(m, d.id), 0) + 1;
@@ -1401,6 +1458,7 @@ app.post('/api/deposits', async (req, res) => {
     amount: numAmount,
     method: methodCfg.label,
     utr: cleanUtr,
+    ...(cleanInvoiceId ? { invoiceId: cleanInvoiceId } : {}),
     status: 'pending',
     date: nowTimestamp(),
     ...(shotCheck.value ? { screenshot: shotCheck.value } : {}),
@@ -1409,15 +1467,59 @@ app.post('/api/deposits', async (req, res) => {
   saveDb();
 
   let autoVerified = false;
-  const isUsdt = methodCfg.label.toLowerCase().includes('usdt');
-  if (!isUsdt && db.imap.enabled && db.imap.email && db.imap.appPassword && db.imap.autoApproveOnSubmit) {
+  const isFampayAutoReady =
+    methodCfg.key === 'fampay' &&
+    Boolean(db.imap.enabled && db.imap.email && db.imap.appPassword);
+  const isBharatpeAutoReady =
+    methodCfg.key === 'bharatpe' &&
+    Boolean(db.payments.bharatpeAutoVerify && db.payments.bharatpeMid.trim() && db.payments.bharatpeToken.trim());
+
+  // STRICT ROUTING:
+  // - Fampay UPI -> Gmail IMAP auto-verify ONLY
+  // - BharatPe UPI -> BharatPe Merchant API auto-verify ONLY
+  // - UPI Manual & USDT -> 100% Admin manual review ONLY (NEVER auto-verified)
+  if (isFampayAutoReady && db.imap.autoApproveOnSubmit) {
     inFlightDepositLocks.add(deposit.id);
     inFlightUtrLocks.add(canonUtr);
     try {
       const excludeUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
-      const check = await verifySingleDepositViaImap(db.imap, cleanUtr, numAmount, excludeUids);
+      const check = await verifySingleDepositViaImap(
+        db.imap,
+        cleanUtr,
+        numAmount,
+        excludeUids,
+        deposit.invoiceId,
+      );
       if (check.matched && deposit.status === 'pending') {
-        autoVerified = creditDepositOnce(deposit, 'imap', check.matchedUid);
+        autoVerified = creditDepositOnce(deposit, 'imap', {
+          matchedEmailUid: check.matchedUid,
+          extraUtrs: check.extractedIds,
+        });
+      }
+    } catch {
+      // Leave pending for repeated background polling or admin review
+    } finally {
+      inFlightDepositLocks.delete(deposit.id);
+      inFlightUtrLocks.delete(canonUtr);
+    }
+  } else if (isBharatpeAutoReady) {
+    inFlightDepositLocks.add(deposit.id);
+    inFlightUtrLocks.add(canonUtr);
+    try {
+      const excludeTxIds = new Set<string>(
+        Array.isArray(db.usedBharatpeTxIds) ? db.usedBharatpeTxIds : [],
+      );
+      const check = await verifySingleDepositViaBharatpe(
+        { merchantId: db.payments.bharatpeMid, token: db.payments.bharatpeToken },
+        cleanUtr,
+        numAmount,
+        excludeTxIds,
+      );
+      if (check.matched && deposit.status === 'pending') {
+        autoVerified = creditDepositOnce(deposit, 'bharatpe', {
+          matchedBharatpeTxId: check.matchedTxId,
+          extraUtrs: [check.matchedBankRef || '', check.matchedTxId || ''],
+        });
       }
     } catch {
       // Leave pending for repeated background polling or admin review
@@ -1427,14 +1529,18 @@ app.post('/api/deposits', async (req, res) => {
     }
   }
 
+  const autoCheckActive = isFampayAutoReady || isBharatpeAutoReady;
+
   return res.status(201).json({
     deposit: sanitizeDepositForUser(deposit),
     autoVerified,
+    autoCheckActive,
+    isManualMethod: methodCfg.key === 'manual' || methodCfg.key === 'usdt',
     state: getPublicUserPayload(user),
   });
 });
 
-app.post('/api/deposits/:id/verify-imap', async (req, res) => {
+async function handleVerifyDepositRequest(req: express.Request, res: express.Response) {
   const user = requireUser(req, res);
   if (!user) return;
 
@@ -1454,12 +1560,28 @@ app.post('/api/deposits/:id/verify-imap', async (req, res) => {
   if (dep.status !== 'pending') {
     return res.status(400).json({ error: 'Only pending deposits can be verified' });
   }
-  if (dep.method.toLowerCase().includes('usdt')) {
-    return res.status(400).json({ error: 'Automatic verification is available for UPI / FamPay deposits only.' });
-  }
-  if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) {
+
+  const mLower = dep.method.toLowerCase();
+  const isFampay = mLower.includes('fampay');
+  const isBharatpe = mLower.includes('bharatpe');
+
+  if (!isFampay && !isBharatpe) {
     return res.status(400).json({
-      error: 'Automatic payment verification is currently disabled. Your deposit will be reviewed shortly.',
+      error: 'UPI Manual & USDT deposits are verified manually by our admin team.',
+    });
+  }
+
+  if (isFampay && (!db.imap.enabled || !db.imap.email || !db.imap.appPassword)) {
+    return res.status(400).json({
+      error: 'FamPay automatic verification is currently paused. Admin will review your deposit shortly.',
+    });
+  }
+  if (
+    isBharatpe &&
+    (!db.payments.bharatpeAutoVerify || !db.payments.bharatpeMid.trim() || !db.payments.bharatpeToken.trim())
+  ) {
+    return res.status(400).json({
+      error: 'BharatPe automatic verification is currently paused. Admin will review your deposit shortly.',
     });
   }
 
@@ -1473,22 +1595,55 @@ app.post('/api/deposits/:id/verify-imap', async (req, res) => {
   }
 
   if (Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr)) {
-    return res.status(409).json({ error: 'This UTR has already been verified and credited.' });
+    return res.status(409).json({ error: 'This UTR / Payment ID has already been verified and credited.' });
   }
 
   inFlightDepositLocks.add(dep.id);
   inFlightUtrLocks.add(canonUtr);
   try {
-    const excludeUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
-    const check = await verifySingleDepositViaImap(db.imap, dep.utr, dep.amount, excludeUids);
-    if (check.matched && dep.status === 'pending') {
-      const credited = creditDepositOnce(dep, 'imap', check.matchedUid);
-      return res.json({
-        verified: credited,
-        deposit: sanitizeDepositForUser(dep),
-        state: getPublicUserPayload(user),
-      });
+    if (isFampay) {
+      const excludeUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
+      const check = await verifySingleDepositViaImap(
+        db.imap,
+        dep.utr,
+        dep.amount,
+        excludeUids,
+        dep.invoiceId,
+      );
+      if (check.matched && dep.status === 'pending') {
+        const credited = creditDepositOnce(dep, 'imap', {
+          matchedEmailUid: check.matchedUid,
+          extraUtrs: check.extractedIds,
+        });
+        return res.json({
+          verified: credited,
+          deposit: sanitizeDepositForUser(dep),
+          state: getPublicUserPayload(user),
+        });
+      }
+    } else if (isBharatpe) {
+      const excludeTxIds = new Set<string>(
+        Array.isArray(db.usedBharatpeTxIds) ? db.usedBharatpeTxIds : [],
+      );
+      const check = await verifySingleDepositViaBharatpe(
+        { merchantId: db.payments.bharatpeMid, token: db.payments.bharatpeToken },
+        dep.utr,
+        dep.amount,
+        excludeTxIds,
+      );
+      if (check.matched && dep.status === 'pending') {
+        const credited = creditDepositOnce(dep, 'bharatpe', {
+          matchedBharatpeTxId: check.matchedTxId,
+          extraUtrs: [check.matchedBankRef || '', check.matchedTxId || ''],
+        });
+        return res.json({
+          verified: credited,
+          deposit: sanitizeDepositForUser(dep),
+          state: getPublicUserPayload(user),
+        });
+      }
     }
+
     return res.json({
       verified: false,
       deposit: sanitizeDepositForUser(dep),
@@ -1502,7 +1657,10 @@ app.post('/api/deposits/:id/verify-imap', async (req, res) => {
     inFlightDepositLocks.delete(dep.id);
     inFlightUtrLocks.delete(canonUtr);
   }
-});
+}
+
+app.post('/api/deposits/:id/verify-imap', handleVerifyDepositRequest);
+app.post('/api/deposits/:id/verify', handleVerifyDepositRequest);
 
 app.post('/api/redeem', (req, res) => {
   if (rejectIfMaintenance(req, res)) return;
@@ -2056,7 +2214,13 @@ app.put('/api/admin/payments', (req, res) => {
     'usdtAddr',
     'usdtNet',
   ] as const;
-  const boolFields = ['manualEnabled', 'fampayEnabled', 'bharatpeEnabled', 'usdtEnabled'] as const;
+  const boolFields = [
+    'manualEnabled',
+    'fampayEnabled',
+    'bharatpeEnabled',
+    'bharatpeAutoVerify',
+    'usdtEnabled',
+  ] as const;
   const qrFields = ['manualQr', 'fampayQr', 'bharatpeQr', 'usdtQr'] as const;
   const limitPairs = [
     { minKey: 'manualMin', maxKey: 'manualMax', label: 'UPI Manual' },
@@ -2069,6 +2233,11 @@ app.put('/api/admin/payments', (req, res) => {
     if (typeof body[k] === 'string') {
       db.payments[k] = body[k].trim().slice(0, 200);
     }
+  }
+  if (body.clearBharatpeToken === true) {
+    db.payments.bharatpeToken = '';
+  } else if (typeof body.bharatpeToken === 'string' && body.bharatpeToken.trim()) {
+    db.payments.bharatpeToken = body.bharatpeToken.trim().slice(0, 2000);
   }
   for (const k of boolFields) {
     if (typeof body[k] === 'boolean') {
@@ -2111,8 +2280,9 @@ async function syncPendingDepositsViaImap(): Promise<{ checked: number; approved
   if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) {
     return { checked: 0, approved: 0 };
   }
+  // ONLY check pending FamPay UPI deposits (NEVER UPI Manual or BharatPe or USDT)
   const pending = db.deposits.filter(
-    (d) => d.status === 'pending' && !d.isRedeem && !d.method.toLowerCase().includes('usdt'),
+    (d) => d.status === 'pending' && !d.isRedeem && d.method.toLowerCase().includes('fampay'),
   );
   if (pending.length === 0) return { checked: 0, approved: 0 };
 
@@ -2121,6 +2291,7 @@ async function syncPendingDepositsViaImap(): Promise<{ checked: number; approved
     const emails = await fetchRecentPaymentEmails(db.imap, 55);
     let approved = 0;
     const usedUids = new Set<number>(Array.isArray(db.usedEmailUids) ? db.usedEmailUids : []);
+    const requireInvoice = db.imap.requireInvoiceMatch !== false;
 
     for (const dep of pending) {
       if (dep.status !== 'pending') continue;
@@ -2132,13 +2303,21 @@ async function syncPendingDepositsViaImap(): Promise<{ checked: number; approved
       const matchedEmail = emails.find(
         (e) =>
           !usedUids.has(e.uid) &&
-          doesEmailMatchPayment(e, dep.utr, dep.amount, db.imap.senderFilter || ''),
+          doesEmailMatchPayment(
+            e,
+            dep.utr,
+            dep.amount,
+            db.imap.senderFilter || '',
+            dep.invoiceId,
+            requireInvoice,
+          ),
       );
       if (matchedEmail) {
         inFlightDepositLocks.add(dep.id);
         inFlightUtrLocks.add(canonUtr);
         try {
-          if (creditDepositOnce(dep, 'imap', matchedEmail.uid)) {
+          const extraUtrs = extractPaymentIdentifiers(matchedEmail.bodyText);
+          if (creditDepositOnce(dep, 'imap', { matchedEmailUid: matchedEmail.uid, extraUtrs })) {
             usedUids.add(matchedEmail.uid);
             approved += 1;
           }
@@ -2154,6 +2333,102 @@ async function syncPendingDepositsViaImap(): Promise<{ checked: number; approved
   }
 }
 
+let bharatpeSyncRunning = false;
+async function syncPendingDepositsViaBharatpe(): Promise<{ checked: number; approved: number }> {
+  if (bharatpeSyncRunning) return { checked: 0, approved: 0 };
+  const db = getDb();
+  const mid = db.payments.bharatpeMid.trim();
+  const token = db.payments.bharatpeToken.trim();
+  if (!db.payments.bharatpeEnabled || !db.payments.bharatpeAutoVerify || !mid || !token) {
+    return { checked: 0, approved: 0 };
+  }
+  const pending = db.deposits.filter(
+    (d) => d.status === 'pending' && !d.isRedeem && d.method.toLowerCase().includes('bharatpe'),
+  );
+  if (pending.length === 0) return { checked: 0, approved: 0 };
+
+  bharatpeSyncRunning = true;
+  try {
+    const txs = await fetchBharatpeTransactions({ merchantId: mid, token }, 3);
+    let approved = 0;
+    const usedTxIds = new Set<string>(
+      Array.isArray(db.usedBharatpeTxIds) ? db.usedBharatpeTxIds : [],
+    );
+
+    for (const dep of pending) {
+      if (dep.status !== 'pending') continue;
+      const canonUtr = normalizeUtr(dep.utr);
+      if (!canonUtr) continue;
+      if (inFlightDepositLocks.has(dep.id) || inFlightUtrLocks.has(canonUtr)) continue;
+      if (Array.isArray(db.usedUtrs) && db.usedUtrs.includes(canonUtr)) continue;
+
+      const matchedTx = txs.find((tx) => {
+        const normId = normalizeUtr(tx.txId);
+        if (normId && usedTxIds.has(normId)) return false;
+        return doesBharatpeTxMatchDeposit(tx, dep.utr, dep.amount);
+      });
+
+      if (matchedTx) {
+        const normTxId = normalizeUtr(matchedTx.txId) || normalizeUtr(matchedTx.bankReferenceNo);
+        inFlightDepositLocks.add(dep.id);
+        inFlightUtrLocks.add(canonUtr);
+        try {
+          if (
+            creditDepositOnce(dep, 'bharatpe', {
+              matchedBharatpeTxId: normTxId,
+              extraUtrs: [matchedTx.bankReferenceNo, matchedTx.txId],
+            })
+          ) {
+            if (normTxId) usedTxIds.add(normTxId);
+            approved += 1;
+          }
+        } finally {
+          inFlightDepositLocks.delete(dep.id);
+          inFlightUtrLocks.delete(canonUtr);
+        }
+      }
+    }
+    return { checked: pending.length, approved };
+  } finally {
+    bharatpeSyncRunning = false;
+  }
+}
+
+app.post('/api/admin/bharatpe/test', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const db = getDb();
+  const draft = (req.body || {}) as { merchantId?: string; token?: string };
+  const merchantId = (draft.merchantId?.trim() || db.payments.bharatpeMid || '').trim();
+  const token = (draft.token?.trim() || db.payments.bharatpeToken || '').trim();
+  if (!merchantId || !token) {
+    return res.status(400).json({ error: 'BharatPe Merchant ID and API Token are required' });
+  }
+  try {
+    const result = await testBharatpeConnection({ merchantId, token });
+    return res.json(result);
+  } catch (err) {
+    return res.status(502).json({
+      error: err instanceof Error ? err.message : 'BharatPe connection test failed',
+    });
+  }
+});
+
+app.post('/api/admin/bharatpe/sync', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const db = getDb();
+  if (!db.payments.bharatpeMid.trim() || !db.payments.bharatpeToken.trim()) {
+    return res.status(400).json({ error: 'Save BharatPe Merchant ID and Token first' });
+  }
+  try {
+    const summary = await syncPendingDepositsViaBharatpe();
+    return res.json({ ...summary, data: getAdminPayload() });
+  } catch (err) {
+    return res.status(502).json({
+      error: err instanceof Error ? err.message : 'BharatPe sync failed',
+    });
+  }
+});
+
 app.put('/api/admin/imap', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const db = getDb();
@@ -2165,6 +2440,7 @@ app.put('/api/admin/imap', (req, res) => {
     appPassword?: string;
     senderFilter?: string;
     autoApproveOnSubmit?: boolean;
+    requireInvoiceMatch?: boolean;
     pollIntervalSec?: number;
   };
 
@@ -2193,6 +2469,9 @@ app.put('/api/admin/imap', (req, res) => {
   }
   if (typeof body.autoApproveOnSubmit === 'boolean') {
     db.imap.autoApproveOnSubmit = body.autoApproveOnSubmit;
+  }
+  if (typeof body.requireInvoiceMatch === 'boolean') {
+    db.imap.requireInvoiceMatch = body.requireInvoiceMatch;
   }
   if (typeof body.pollIntervalSec === 'number' && !Number.isNaN(body.pollIntervalSec)) {
     db.imap.pollIntervalSec = Math.min(300, Math.max(15, Math.round(body.pollIntervalSec)));
@@ -3164,11 +3443,21 @@ async function startServer() {
   let lastImapRun = 0;
   setInterval(() => {
     const db = getDb();
-    if (!db.imap.enabled || !db.imap.email || !db.imap.appPassword) return;
-    const intervalMs = Math.max(15, Number(db.imap.pollIntervalSec) || 20) * 1000;
-    if (Date.now() - lastImapRun < intervalMs) return;
-    lastImapRun = Date.now();
-    void syncPendingDepositsViaImap().catch(() => {});
+    if (db.imap.enabled && db.imap.email && db.imap.appPassword) {
+      const intervalMs = Math.max(15, Number(db.imap.pollIntervalSec) || 20) * 1000;
+      if (Date.now() - lastImapRun >= intervalMs) {
+        lastImapRun = Date.now();
+        void syncPendingDepositsViaImap().catch(() => {});
+      }
+    }
+    if (
+      db.payments.bharatpeEnabled &&
+      db.payments.bharatpeAutoVerify &&
+      db.payments.bharatpeMid.trim() &&
+      db.payments.bharatpeToken.trim()
+    ) {
+      void syncPendingDepositsViaBharatpe().catch(() => {});
+    }
   }, 15_000);
 
   // Automatic scheduled GitHub Full DB Backup (default every 2 hours = 120 mins)

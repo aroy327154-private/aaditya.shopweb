@@ -43,12 +43,14 @@ export interface ServerDeposit {
   amount: number;
   method: string;
   utr: string;
+  invoiceId?: string;
   status: 'pending' | 'success' | 'rejected';
   date: string;
   isRedeem?: boolean;
-  verifiedBy?: 'admin' | 'imap';
+  verifiedBy?: 'admin' | 'imap' | 'bharatpe';
   screenshot?: string;
   matchedEmailUid?: number;
+  matchedBharatpeTxId?: string;
 }
 
 export interface ServerStockItem {
@@ -142,6 +144,8 @@ export interface ServerPaymentSettings {
   fampayMax: number;
   bharatpeUpi: string;
   bharatpeMid: string;
+  bharatpeToken: string;
+  bharatpeAutoVerify: boolean;
   bharatpeEnabled: boolean;
   bharatpeQr: string;
   bharatpeMin: number;
@@ -162,6 +166,7 @@ export interface ServerImapSettings {
   appPassword: string;
   senderFilter: string;
   autoApproveOnSubmit: boolean;
+  requireInvoiceMatch: boolean;
   pollIntervalSec: number;
 }
 
@@ -254,6 +259,8 @@ export interface PersistedDb {
   broadcasts: ServerBroadcast[];
   usedUtrs: string[];
   usedEmailUids: number[];
+  usedInvoiceIds: string[];
+  usedBharatpeTxIds: string[];
 }
 
 export function normalizeUtr(raw: string): string {
@@ -390,6 +397,8 @@ const INITIAL_DB: PersistedDb = {
     fampayMax: 50000,
     bharatpeUpi: '',
     bharatpeMid: '',
+    bharatpeToken: '',
+    bharatpeAutoVerify: false,
     bharatpeEnabled: false,
     bharatpeQr: '',
     bharatpeMin: 10,
@@ -409,7 +418,8 @@ const INITIAL_DB: PersistedDb = {
     appPassword: '',
     senderFilter: 'fampay,famapp',
     autoApproveOnSubmit: true,
-    pollIntervalSec: 30,
+    requireInvoiceMatch: true,
+    pollIntervalSec: 20,
   },
   githubBackup: {
     enabled: false,
@@ -438,6 +448,8 @@ const INITIAL_DB: PersistedDb = {
   broadcasts: [],
   usedUtrs: [],
   usedEmailUids: [],
+  usedInvoiceIds: [],
+  usedBharatpeTxIds: [],
 };
 
 function hydrateIntegrityLists(target: PersistedDb): PersistedDb {
@@ -449,13 +461,31 @@ function hydrateIntegrityLists(target: PersistedDb): PersistedDb {
       .map((n) => Number(n))
       .filter((n) => Number.isInteger(n) && n > 0),
   );
+  const invoiceSet = new Set<string>(
+    (Array.isArray(target.usedInvoiceIds) ? target.usedInvoiceIds : [])
+      .map((v) => normalizeUtr(v))
+      .filter(Boolean),
+  );
+  const bpTxSet = new Set<string>(
+    (Array.isArray(target.usedBharatpeTxIds) ? target.usedBharatpeTxIds : [])
+      .map((v) => normalizeUtr(v))
+      .filter(Boolean),
+  );
   for (const dep of target.deposits) {
     if (dep.status === 'success' && !dep.isRedeem && dep.utr) {
       const norm = normalizeUtr(dep.utr);
       if (norm) utrSet.add(norm);
     }
+    if (dep.status === 'success' && dep.invoiceId) {
+      const inv = normalizeUtr(dep.invoiceId);
+      if (inv) invoiceSet.add(inv);
+    }
     if (typeof dep.matchedEmailUid === 'number' && dep.matchedEmailUid > 0) {
       uidSet.add(dep.matchedEmailUid);
+    }
+    if (dep.matchedBharatpeTxId) {
+      const btx = normalizeUtr(dep.matchedBharatpeTxId);
+      if (btx) bpTxSet.add(btx);
     }
   }
   for (const ord of target.orders) {
@@ -465,6 +495,8 @@ function hydrateIntegrityLists(target: PersistedDb): PersistedDb {
   }
   target.usedUtrs = Array.from(utrSet);
   target.usedEmailUids = Array.from(uidSet);
+  target.usedInvoiceIds = Array.from(invoiceSet);
+  target.usedBharatpeTxIds = Array.from(bpTxSet);
   return target;
 }
 
@@ -484,6 +516,8 @@ function loadDbFromDisk(): PersistedDb {
       settings: { ...INITIAL_DB.settings, ...(parsed.settings || {}) },
       usedUtrs: Array.isArray(parsed.usedUtrs) ? parsed.usedUtrs : [],
       usedEmailUids: Array.isArray(parsed.usedEmailUids) ? parsed.usedEmailUids : [],
+      usedInvoiceIds: Array.isArray(parsed.usedInvoiceIds) ? parsed.usedInvoiceIds : [],
+      usedBharatpeTxIds: Array.isArray(parsed.usedBharatpeTxIds) ? parsed.usedBharatpeTxIds : [],
     };
     return hydrateIntegrityLists(merged);
   } catch {
@@ -531,8 +565,22 @@ export function sanitizeOrderForUser(o: ServerOrder) {
 }
 
 export function sanitizeDepositForUser(d: ServerDeposit) {
-  const { matchedEmailUid: _u, ...rest } = d;
+  const { matchedEmailUid: _u, matchedBharatpeTxId: _b, ...rest } = d;
   return rest;
+}
+
+function sanitizePaymentsForUser(p: ServerPaymentSettings) {
+  const { bharatpeToken: _t, ...rest } = p;
+  return rest;
+}
+
+function sanitizePaymentsForAdmin(p: ServerPaymentSettings) {
+  const { bharatpeToken, ...rest } = p;
+  return {
+    ...rest,
+    bharatpeTokenConfigured: Boolean(bharatpeToken),
+    bharatpeTokenMask: maskSecret(bharatpeToken || ''),
+  };
 }
 
 export function getPublicGoogleAuthConfig() {
@@ -605,9 +653,15 @@ export function getPublicUserPayload(user: ServerUser) {
       cats: db.smm.cats,
       services: db.smm.services,
     },
-    payments: db.payments,
+    payments: sanitizePaymentsForUser(db.payments),
     settings: db.settings,
     imapAutoVerifyEnabled: Boolean(db.imap.enabled && db.imap.email && db.imap.appPassword),
+    bharatpeAutoVerifyEnabled: Boolean(
+      db.payments.bharatpeEnabled &&
+        db.payments.bharatpeAutoVerify &&
+        db.payments.bharatpeMid.trim() &&
+        db.payments.bharatpeToken.trim(),
+    ),
     broadcasts: db.broadcasts.slice(0, 3),
     serverStatus: db.servers.map((s) => {
       const s2Key = db.servers.find((x) => x.no === 2)?.key || '';
@@ -649,7 +703,7 @@ export function getAdminPayload() {
       cats: db.smm.cats,
       services: db.smm.services,
     },
-    payments: db.payments,
+    payments: sanitizePaymentsForAdmin(db.payments),
     imap: {
       enabled: db.imap.enabled,
       host: db.imap.host,
@@ -659,6 +713,7 @@ export function getAdminPayload() {
       passMask: maskSecret(db.imap.appPassword),
       senderFilter: db.imap.senderFilter,
       autoApproveOnSubmit: db.imap.autoApproveOnSubmit,
+      requireInvoiceMatch: db.imap.requireInvoiceMatch !== false,
       pollIntervalSec: db.imap.pollIntervalSec,
     },
     githubBackup: {
@@ -856,7 +911,14 @@ export function restoreDbFromBackup(
           ? (rawSmm.services as ServerSmmService[])
           : defaults.smm.services,
       },
-      payments: { ...defaults.payments, ...rawPayments },
+      payments: {
+        ...defaults.payments,
+        ...rawPayments,
+        bharatpeToken:
+          typeof rawPayments.bharatpeToken === 'string' && rawPayments.bharatpeToken.trim()
+            ? rawPayments.bharatpeToken.trim()
+            : db.payments.bharatpeToken,
+      },
       imap: { ...defaults.imap, ...rawImap },
       githubBackup: {
         ...defaults.githubBackup,
@@ -878,6 +940,8 @@ export function restoreDbFromBackup(
       broadcasts: Array.isArray(candidate.broadcasts) ? candidate.broadcasts : defaults.broadcasts,
       usedUtrs: Array.isArray(candidate.usedUtrs) ? candidate.usedUtrs : [],
       usedEmailUids: Array.isArray(candidate.usedEmailUids) ? candidate.usedEmailUids : [],
+      usedInvoiceIds: Array.isArray(candidate.usedInvoiceIds) ? candidate.usedInvoiceIds : [],
+      usedBharatpeTxIds: Array.isArray(candidate.usedBharatpeTxIds) ? candidate.usedBharatpeTxIds : [],
     }),
   ) as PersistedDb;
 

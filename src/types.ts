@@ -79,10 +79,11 @@ export interface DepositRecord {
   amount: number;
   method: string;
   utr: string;
+  invoiceId?: string;
   status: 'pending' | 'success' | 'rejected';
   date: string;
   isRedeem?: boolean;
-  verifiedBy?: 'admin' | 'imap';
+  verifiedBy?: 'admin' | 'imap' | 'bharatpe';
   screenshot?: string;
 }
 
@@ -208,6 +209,9 @@ export interface PaymentSettings {
   fampayMax: number;
   bharatpeUpi: string;
   bharatpeMid: string;
+  bharatpeAutoVerify?: boolean;
+  bharatpeTokenConfigured?: boolean;
+  bharatpeTokenMask?: string;
   bharatpeEnabled: boolean;
   bharatpeQr?: string;
   bharatpeMin: number;
@@ -229,6 +233,7 @@ export interface ImapSettingsView {
   passMask: string;
   senderFilter: string;
   autoApproveOnSubmit: boolean;
+  requireInvoiceMatch?: boolean;
   pollIntervalSec: number;
 }
 
@@ -395,6 +400,7 @@ export interface PublicStoreState {
   payments: PaymentSettings;
   settings: StoreSettings;
   imapAutoVerifyEnabled?: boolean;
+  bharatpeAutoVerifyEnabled?: boolean;
   broadcasts?: BroadcastEntry[];
   serverStatus: {
     no: 1 | 2 | 3;

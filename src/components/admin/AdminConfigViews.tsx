@@ -173,8 +173,20 @@ const QrUploadControl: React.FC<{
 };
 
 export const AdminPaymentsView: React.FC = () => {
-  const { adminData, savePaymentSettings, saveImapSettings, testImapSettings, syncImapDeposits } = useStore();
+  const {
+    adminData,
+    savePaymentSettings,
+    testBharatpeSettings,
+    syncBharatpeDeposits,
+    saveImapSettings,
+    testImapSettings,
+    syncImapDeposits,
+  } = useStore();
   const [p, setP] = useState(adminData!.payments);
+  const [bpToken, setBpToken] = useState('');
+  const [testingBp, setTestingBp] = useState(false);
+  const [syncingBp, setSyncingBp] = useState(false);
+
   const [imapEmail, setImapEmail] = useState(adminData!.imap?.email || '');
   const [imapPass, setImapPass] = useState('');
   const [imapHost, setImapHost] = useState(adminData!.imap?.host || 'imap.gmail.com');
@@ -184,7 +196,10 @@ export const AdminPaymentsView: React.FC = () => {
   const [imapAutoOnSubmit, setImapAutoOnSubmit] = useState(
     adminData!.imap?.autoApproveOnSubmit !== false,
   );
-  const [imapInterval, setImapInterval] = useState(String(adminData!.imap?.pollIntervalSec || 30));
+  const [imapRequireInvoice, setImapRequireInvoice] = useState(
+    adminData!.imap?.requireInvoiceMatch !== false,
+  );
+  const [imapInterval, setImapInterval] = useState(String(adminData!.imap?.pollIntervalSec || 20));
   const [testingImap, setTestingImap] = useState(false);
   const [syncingImap, setSyncingImap] = useState(false);
 
@@ -200,7 +215,8 @@ export const AdminPaymentsView: React.FC = () => {
       setImapFilter(adminData.imap.senderFilter ?? 'fampay,famapp');
       setImapEnabled(Boolean(adminData.imap.enabled));
       setImapAutoOnSubmit(adminData.imap.autoApproveOnSubmit !== false);
-      setImapInterval(String(adminData.imap.pollIntervalSec || 30));
+      setImapRequireInvoice(adminData.imap.requireInvoiceMatch !== false);
+      setImapInterval(String(adminData.imap.pollIntervalSec || 20));
     }
   }, [adminData?.imap]);
 
@@ -211,7 +227,7 @@ export const AdminPaymentsView: React.FC = () => {
       <div>
         <h1 className="font-display text-2xl font-bold text-slate-900">Payment Methods</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Turn gateways on or off, set custom QR codes, and configure minimum &amp; maximum deposit limits for every payment method.
+          Configure UPI Manual (admin-only), FamPay auto-verify with Invoice Note, BharatPe auto UTR verification, and USDT.
         </p>
       </div>
 
@@ -219,7 +235,10 @@ export const AdminPaymentsView: React.FC = () => {
         {/* UPI Manual */}
         <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-display font-bold text-base text-slate-900">UPI Manual</h2>
+            <div>
+              <h2 className="font-display font-bold text-base text-slate-900">UPI Manual</h2>
+              <p className="text-[11px] text-slate-500">100% Admin manual approval (never auto-verified)</p>
+            </div>
             <PaymentToggle
               label="UPI Manual"
               checked={p.manualEnabled}
@@ -375,7 +394,10 @@ export const AdminPaymentsView: React.FC = () => {
         {/* BharatPe */}
         <div className="admin-card rounded-2xl p-5 space-y-3.5">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-display font-bold text-base text-slate-900">BharatPe</h2>
+            <div>
+              <h2 className="font-display font-bold text-base text-slate-900">BharatPe Auto UTR</h2>
+              <p className="text-[11px] text-slate-500">Auto-verifies UTR live using BharatPe Merchant ID &amp; Token</p>
+            </div>
             <PaymentToggle
               label="BharatPe"
               checked={p.bharatpeEnabled}
@@ -385,20 +407,56 @@ export const AdminPaymentsView: React.FC = () => {
               }}
             />
           </div>
+          <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/80 px-3 py-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-emerald-950">Automatic UTR Verification</div>
+              <div className="text-[11px] text-emerald-800/80">
+                Checks BharatPe transactions on submit &amp; every 15s (1-time credit per UTR)
+              </div>
+            </div>
+            <PaymentToggle
+              label="BharatPe Auto Verify"
+              checked={Boolean(p.bharatpeAutoVerify)}
+              onChange={(next) => {
+                setP((prev) => ({ ...prev, bharatpeAutoVerify: next }));
+                void savePaymentSettings({ bharatpeAutoVerify: next }, 'BharatPe Auto-Verify');
+              }}
+            />
+          </div>
           <div>
-            <label className="text-xs text-slate-500">BharatPe UPI</label>
+            <label className="text-xs text-slate-500">BharatPe UPI ID</label>
             <input
               value={p.bharatpeUpi}
               onChange={(e) => setP({ ...p, bharatpeUpi: e.target.value })}
-              placeholder="merchant@bharatpe"
+              placeholder="BHARATPE.xxxx@fbpe"
               className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500">Merchant ID</label>
+            <label className="text-xs text-slate-500">BharatPe Merchant ID (MID)</label>
             <input
               value={p.bharatpeMid}
               onChange={(e) => setP({ ...p, bharatpeMid: e.target.value })}
+              placeholder="e.g. 54218930"
+              className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs text-slate-500">BharatPe API Token</label>
+              <span className="text-[11px] font-mono text-slate-400">
+                {p.bharatpeTokenConfigured ? `Saved: ${p.bharatpeTokenMask}` : 'Not set'}
+              </span>
+            </div>
+            <input
+              type="password"
+              value={bpToken}
+              onChange={(e) => setBpToken(e.target.value)}
+              placeholder={
+                p.bharatpeTokenConfigured
+                  ? 'Leave blank to keep saved token, or paste new token'
+                  : 'Paste BharatPe Merchant token'
+              }
               className="mt-1 w-full min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-mono focus:border-emerald-600 focus:outline-none"
             />
           </div>
@@ -429,25 +487,67 @@ export const AdminPaymentsView: React.FC = () => {
             value={p.bharatpeQr || ''}
             onChange={(val) => setP({ ...p, bharatpeQr: val })}
           />
-          <button
-            type="button"
-            onClick={() =>
-              void savePaymentSettings(
-                {
-                  bharatpeUpi: p.bharatpeUpi,
-                  bharatpeMid: p.bharatpeMid,
-                  bharatpeEnabled: p.bharatpeEnabled,
-                  bharatpeQr: p.bharatpeQr || '',
-                  bharatpeMin: Number(p.bharatpeMin) || 10,
-                  bharatpeMax: Number(p.bharatpeMax) || 50000,
-                },
-                'BharatPe',
-              )
-            }
-            className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
-          >
-            Save BharatPe
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                await savePaymentSettings(
+                  {
+                    bharatpeUpi: p.bharatpeUpi,
+                    bharatpeMid: p.bharatpeMid,
+                    bharatpeAutoVerify: Boolean(p.bharatpeAutoVerify),
+                    bharatpeEnabled: p.bharatpeEnabled,
+                    bharatpeQr: p.bharatpeQr || '',
+                    bharatpeMin: Number(p.bharatpeMin) || 10,
+                    bharatpeMax: Number(p.bharatpeMax) || 50000,
+                    ...(bpToken.trim() ? { bharatpeToken: bpToken.trim() } : {}),
+                  },
+                  'BharatPe',
+                );
+                setBpToken('');
+              }}
+              className="flex-1 min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
+            >
+              Save BharatPe
+            </button>
+            <button
+              type="button"
+              disabled={testingBp}
+              onClick={async () => {
+                setTestingBp(true);
+                await testBharatpeSettings({
+                  merchantId: p.bharatpeMid.trim(),
+                  ...(bpToken.trim() ? { token: bpToken.trim() } : {}),
+                });
+                setTestingBp(false);
+              }}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 text-emerald-700 text-xs font-semibold"
+            >
+              {testingBp ? 'Testing…' : 'Test Connection'}
+            </button>
+            <button
+              type="button"
+              disabled={syncingBp}
+              onClick={async () => {
+                setSyncingBp(true);
+                await syncBharatpeDeposits();
+                setSyncingBp(false);
+              }}
+              className="min-h-[40px] px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-800 text-xs font-semibold inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingBp ? 'animate-spin' : ''}`} />
+              {syncingBp ? 'Syncing…' : 'Sync Pending'}
+            </button>
+            {p.bharatpeTokenConfigured && (
+              <button
+                type="button"
+                onClick={() => void savePaymentSettings({ clearBharatpeToken: true }, 'BharatPe Token')}
+                className="min-h-[40px] px-3 py-2 rounded-xl border border-red-200 hover:bg-red-50 text-red-700 text-xs font-semibold"
+              >
+                Clear Token
+              </button>
+            )}
+          </div>
         </div>
 
         {/* USDT */}
@@ -538,15 +638,15 @@ export const AdminPaymentsView: React.FC = () => {
             </div>
             <div>
               <h2 className="font-display font-bold text-base text-slate-900">
-                FamPay &amp; UPI Gmail IMAP Auto-Verification
+                FamPay Automatic Gmail IMAP Verification (FamPay Only)
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Reads incoming FamPay / UPI alert emails in Gmail and automatically approves deposits when exact UTR &amp; ₹ amount match.
+                Verifies <strong>FamPay UPI</strong> deposits only (UPI Manual stays 100% admin-approved). Matches FamPay Payment ID or 12-digit UTR + ₹ amount + generated Invoice ID note, once per payment.
               </p>
             </div>
           </div>
           <PaymentToggle
-            label="Gmail IMAP Auto-Verification"
+            label="FamPay IMAP Auto-Verification"
             checked={imapEnabled}
             onChange={(next) => {
               setImapEnabled(next);
@@ -623,14 +723,24 @@ export const AdminPaymentsView: React.FC = () => {
           </div>
         </div>
 
-        <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={imapAutoOnSubmit}
-            onChange={(e) => setImapAutoOnSubmit(e.target.checked)}
-          />
-          Verify immediately when user submits UTR (and retry automatically in background if email arrives late)
-        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={imapAutoOnSubmit}
+              onChange={(e) => setImapAutoOnSubmit(e.target.checked)}
+            />
+            Verify FamPay UTR / Payment ID immediately on submit (and keep checking every {Math.max(15, parseInt(imapInterval, 10) || 20)}s in background)
+          </label>
+          <label className="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={imapRequireInvoice}
+              onChange={(e) => setImapRequireInvoice(e.target.checked)}
+            />
+            Require generated Invoice ID in FamPay email Note/Remark (recommended — stops duplicate/old UTR reuse)
+          </label>
+        </div>
 
         <div className="rounded-xl bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 text-xs text-slate-600 leading-relaxed">
           Setup: Enable <strong>2-Step Verification</strong> on your Gmail account, create a 16-character{' '}
@@ -649,6 +759,7 @@ export const AdminPaymentsView: React.FC = () => {
                 ...(imapPass.trim() ? { appPassword: imapPass.trim() } : {}),
                 senderFilter: imapFilter.trim(),
                 autoApproveOnSubmit: imapAutoOnSubmit,
+                requireInvoiceMatch: imapRequireInvoice,
                 pollIntervalSec: Math.max(15, parseInt(imapInterval, 10) || 20),
               });
               setImapPass('');

@@ -26,11 +26,21 @@ import { formatMoney, formatMoneyCompact } from '../../lib/format';
 import { SupportTicket, TicketMessage } from '../../types';
 import { LiveAmbientBackdrop } from './LiveAmbientBackdrop';
 
+function generateFampayInvoiceId(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let suffix = '';
+  for (let i = 0; i < 7; i += 1) {
+    suffix += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `ATG${suffix}`;
+}
+
 export const DepositView: React.FC = () => {
   const { userState, navigateStore, submitDeposit, showToast } = useStore();
   const [method, setMethod] = useState<'upi' | 'fampay' | 'bharatpe' | 'usdt'>('upi');
   const [amount, setAmount] = useState<string>('500');
   const [utr, setUtr] = useState<string>('');
+  const [fampayInvoiceId, setFampayInvoiceId] = useState<string>(() => generateFampayInvoiceId());
   const [screenshot, setScreenshot] = useState<string>('');
   const [screenshotName, setScreenshotName] = useState<string>('');
   const [compressingShot, setCompressingShot] = useState(false);
@@ -40,6 +50,8 @@ export const DepositView: React.FC = () => {
 
   const p = userState?.payments;
   const usdtRate = userState?.settings.usdtRate || 92;
+  const isFampayAuto = Boolean(userState?.imapAutoVerifyEnabled);
+  const isBharatpeAuto = Boolean(userState?.bharatpeAutoVerifyEnabled);
 
   const enabledMethods = useMemo(() => {
     const normalizeRange = (rawMin: number | undefined, rawMax: number | undefined, dMin: number, dMax: number) => {
@@ -52,50 +64,53 @@ export const DepositView: React.FC = () => {
     const bharatpeRange = normalizeRange(p?.bharatpeMin, p?.bharatpeMax, 10, 50000);
     const usdtRange = normalizeRange(p?.usdtMin, p?.usdtMax, 100, 500000);
 
+    const parsedAmt = parseFloat(amount) || 0;
+
     const all = [
       {
         id: 'upi' as const,
         title: 'UPI Manual',
-        sub: 'Any UPI app · Submit UTR',
+        sub: 'Any UPI app · Admin verification',
         min: manualRange.min,
         max: manualRange.max,
         icon: WalletIcon,
         enabled: Boolean(p?.manualEnabled),
         customQr: p?.manualQr || '',
         qrPayload: p?.manualUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.manualUpi)}&pn=${encodeURIComponent(p.manualName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.manualUpi)}&pn=${encodeURIComponent(p.manualName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parsedAmt))}&cu=INR`
           : '',
       },
       {
         id: 'fampay' as const,
         title: 'Fampay UPI',
-        sub: 'Submit UTR for verification',
+        sub: isFampayAuto ? 'Instant Auto Verify · Invoice Note' : 'Submit UTR / Payment ID',
         min: fampayRange.min,
         max: fampayRange.max,
         icon: Zap,
         enabled: Boolean(p?.fampayEnabled),
-        customQr: p?.fampayQr || '',
+        // Always prefer auto-generated dynamic QR when FamPay UPI ID is set so Invoice ID note is pre-filled automatically
+        customQr: p?.fampayUpi ? '' : p?.fampayQr || '',
         qrPayload: p?.fampayUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.fampayUpi)}&pn=${encodeURIComponent(p.fampayName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.fampayUpi)}&pn=${encodeURIComponent(p.fampayName || 'AadityaTg.Store')}&am=${encodeURIComponent(String(parsedAmt))}&cu=INR&tn=${encodeURIComponent(fampayInvoiceId)}&tr=${encodeURIComponent(fampayInvoiceId)}`
           : '',
       },
       {
         id: 'bharatpe' as const,
         title: 'BharatPe UPI',
-        sub: 'Submit UTR for verification',
+        sub: isBharatpeAuto ? 'Instant Auto UTR Verification' : 'Submit UTR for verification',
         min: bharatpeRange.min,
         max: bharatpeRange.max,
         icon: Smartphone,
         enabled: Boolean(p?.bharatpeEnabled),
         customQr: p?.bharatpeQr || '',
         qrPayload: p?.bharatpeUpi
-          ? `upi://pay?pa=${encodeURIComponent(p.bharatpeUpi)}&pn=${encodeURIComponent('AadityaTg.Store')}&am=${encodeURIComponent(String(parseFloat(amount) || 0))}&cu=INR`
+          ? `upi://pay?pa=${encodeURIComponent(p.bharatpeUpi)}&pn=${encodeURIComponent('AadityaTg.Store')}&am=${encodeURIComponent(String(parsedAmt))}&cu=INR`
           : '',
       },
       {
         id: 'usdt' as const,
         title: 'USDT (TRC20)',
-        sub: `Rate ₹${usdtRate} / USDT`,
+        sub: `Rate ₹${usdtRate} / USDT · Admin verify`,
         min: usdtRange.min,
         max: usdtRange.max,
         icon: CreditCard,
@@ -105,7 +120,7 @@ export const DepositView: React.FC = () => {
       },
     ];
     return all.filter((m) => m.enabled);
-  }, [p, usdtRate, amount]);
+  }, [p, usdtRate, amount, fampayInvoiceId, isFampayAuto, isBharatpeAuto]);
 
   useEffect(() => {
     if (enabledMethods.length > 0 && !enabledMethods.some((m) => m.id === method)) {
@@ -114,6 +129,9 @@ export const DepositView: React.FC = () => {
   }, [enabledMethods, method]);
 
   const activeMethod = enabledMethods.find((m) => m.id === method) || enabledMethods[0];
+  const isSelectedAutoMethod =
+    (activeMethod?.id === 'fampay' && isFampayAuto) ||
+    (activeMethod?.id === 'bharatpe' && isBharatpeAuto);
 
   const amountPresets = useMemo(() => {
     if (!activeMethod) return ['100', '500', '1000', '2000'];
@@ -259,9 +277,20 @@ export const DepositView: React.FC = () => {
       return;
     }
     setSubmitting(true);
-    const ok = await submitDeposit(activeMethod.title, num, utr, screenshot || undefined);
+    const ok = await submitDeposit(
+      activeMethod.title,
+      num,
+      utr,
+      screenshot || undefined,
+      activeMethod.id === 'fampay' ? fampayInvoiceId : undefined,
+    );
     setSubmitting(false);
-    if (ok) navigateStore('wallet');
+    if (ok) {
+      if (activeMethod.id === 'fampay') {
+        setFampayInvoiceId(generateFampayInvoiceId());
+      }
+      navigateStore('wallet');
+    }
   };
 
   return (
@@ -393,12 +422,16 @@ export const DepositView: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between w-full gap-2 text-xs text-slate-500">
                   <span>
-                    {activeMethod?.customQr ? 'Scan QR code to pay' : 'Auto-generated QR for selected amount'}
+                    {activeMethod?.id === 'fampay' && !activeMethod.customQr
+                      ? `QR auto-fills ₹${parseFloat(amount) || 0} & Invoice Note (${fampayInvoiceId})`
+                      : activeMethod?.customQr
+                        ? 'Scan QR code to pay'
+                        : 'Auto-generated QR for selected amount'}
                   </span>
                   <button
                     type="button"
                     onClick={handleDownloadQr}
-                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold inline-flex items-center gap-1"
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold inline-flex items-center gap-1 shrink-0"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Save QR
@@ -407,7 +440,7 @@ export const DepositView: React.FC = () => {
               </div>
             )}
 
-            <div className="rounded-xl border border-white/85 bg-white/60 backdrop-blur-md p-4 space-y-2 text-sm">
+            <div className="rounded-xl border border-white/85 bg-white/60 backdrop-blur-md p-4 space-y-2.5 text-sm">
               {activeMethod?.id === 'upi' && (
                 <>
                   <div className="flex items-center justify-between gap-2">
@@ -445,6 +478,35 @@ export const DepositView: React.FC = () => {
                     <span className="text-slate-500">Display Name</span>
                     <span className="font-medium text-slate-900">{p?.fampayName || '—'}</span>
                   </div>
+                  <div className="mt-2 pt-2.5 border-t border-emerald-200/70 rounded-xl bg-emerald-50/75 px-3 py-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-emerald-900">
+                        Invoice ID (Payment Note)
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => copyDetail(fampayInvoiceId, 'Invoice ID')}
+                          className="px-2.5 py-1 rounded-lg bg-white border border-emerald-200 hover:bg-emerald-100/70 font-mono text-xs font-bold text-emerald-800 inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {fampayInvoiceId}
+                          <Copy className="w-3 h-3 text-emerald-600" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFampayInvoiceId(generateFampayInvoiceId())}
+                          className="p-1.5 rounded-lg bg-white border border-emerald-200 hover:bg-emerald-100/70 text-emerald-700 cursor-pointer"
+                          title="Generate new Invoice ID"
+                          aria-label="Generate new Invoice ID"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-emerald-900/80 leading-relaxed">
+                      Scanning the QR above auto-fills this Invoice ID in Note. If paying manually via UPI ID, paste this exact Invoice ID in the <strong>Payment Note / Remark</strong>.
+                    </p>
+                  </div>
                 </>
               )}
 
@@ -461,7 +523,10 @@ export const DepositView: React.FC = () => {
                       {p?.bharatpeUpi && <Copy className="w-3.5 h-3.5 text-slate-400" />}
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500">Merchant ID: {p?.bharatpeMid || '—'}</p>
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+                    <span>Merchant ID</span>
+                    <span className="font-mono font-semibold text-slate-800">{p?.bharatpeMid || '—'}</span>
+                  </div>
                 </>
               )}
 
@@ -490,14 +555,24 @@ export const DepositView: React.FC = () => {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                {activeMethod?.id === 'usdt' ? 'Transaction Hash (TXID)' : 'UTR / 12-Digit Reference Number'}
+                {activeMethod?.id === 'usdt'
+                  ? 'Transaction Hash (TXID)'
+                  : activeMethod?.id === 'fampay'
+                    ? 'FamPay UTR / Payment ID'
+                    : 'UTR / 12-Digit Reference Number'}
               </label>
               <input
                 type="text"
                 required
                 value={utr}
                 onChange={(e) => setUtr(e.target.value)}
-                placeholder={activeMethod?.id === 'usdt' ? '0x...' : 'Enter UTR number'}
+                placeholder={
+                  activeMethod?.id === 'usdt'
+                    ? '0x...'
+                    : activeMethod?.id === 'fampay'
+                      ? 'Enter 12-digit UTR or FamPay Payment ID (e.g. FMP...)'
+                      : 'Enter 12-digit UTR number'
+                }
                 className="w-full min-h-[46px] px-4 py-2.5 rounded-xl glass-input border border-slate-200/90 text-sm font-mono focus:border-emerald-600 focus:outline-none"
               />
             </div>
@@ -563,11 +638,20 @@ export const DepositView: React.FC = () => {
               )}
             </div>
 
-            {userState?.imapAutoVerifyEnabled && activeMethod?.id !== 'usdt' && (
+            {activeMethod?.id === 'fampay' && isFampayAuto ? (
               <div className="rounded-xl bg-emerald-50/85 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-800">
-                Instant automatic verification is active — enter your exact UTR after paying. We will keep checking automatically and credit your wallet once confirmed.
+                FamPay Instant Auto-Verification is active — make sure Invoice ID{' '}
+                <strong className="font-mono">{fampayInvoiceId}</strong> is in your payment note (auto-filled in QR), then submit your FamPay UTR or Payment ID. Each payment verifies once only.
               </div>
-            )}
+            ) : activeMethod?.id === 'bharatpe' && isBharatpeAuto ? (
+              <div className="rounded-xl bg-emerald-50/85 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-800">
+                BharatPe Instant Auto-Verification is active — enter your exact 12-digit UTR after paying and your wallet will credit automatically once confirmed.
+              </div>
+            ) : activeMethod?.id === 'upi' || activeMethod?.id === 'usdt' ? (
+              <div className="rounded-xl bg-slate-50/90 border border-slate-200 px-3.5 py-2.5 text-xs text-slate-700">
+                Manual Admin Verification — after paying, enter your UTR / TXID and upload your payment screenshot. Our admin team will verify and credit your wallet shortly.
+              </div>
+            ) : null}
 
             <button
               type="submit"
@@ -575,12 +659,12 @@ export const DepositView: React.FC = () => {
               className="w-full min-h-[48px] py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-60 text-white font-semibold text-sm shadow-[0_12px_24px_-8px_rgba(5,150,105,0.55)] transition-all active:scale-[0.98] cursor-pointer"
             >
               {submitting
-                ? userState?.imapAutoVerifyEnabled && activeMethod?.id !== 'usdt'
+                ? isSelectedAutoMethod
                   ? 'Verifying Payment…'
                   : 'Submitting…'
-                : userState?.imapAutoVerifyEnabled && activeMethod?.id !== 'usdt'
+                : isSelectedAutoMethod
                   ? 'Submit & Verify Payment'
-                  : 'Submit Payment for Verification'}
+                  : 'Submit for Admin Verification'}
             </button>
           </form>
         </div>
@@ -594,20 +678,24 @@ export const WalletView: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'recharge' | 'purchase' | 'redeem'>('all');
   const [checkingDepId, setCheckingDepId] = useState<number | null>(null);
 
+  const isMethodAutoVerifiable = (methodName: string): boolean => {
+    const m = methodName.toLowerCase();
+    if (m.includes('fampay')) return Boolean(userState?.imapAutoVerifyEnabled);
+    if (m.includes('bharatpe')) return Boolean(userState?.bharatpeAutoVerifyEnabled);
+    return false;
+  };
+
   const pendingAutoDeposits = useMemo(
     () =>
       (userState?.deposits || []).filter(
-        (d) =>
-          d.status === 'pending' &&
-          !d.isRedeem &&
-          !d.method.toLowerCase().includes('usdt'),
+        (d) => d.status === 'pending' && !d.isRedeem && isMethodAutoVerifiable(d.method),
       ),
-    [userState?.deposits],
+    [userState?.deposits, userState?.imapAutoVerifyEnabled, userState?.bharatpeAutoVerifyEnabled],
   );
 
-  // Repeatedly re-check pending FamPay / UPI UTRs every 15s while user is on WalletView
+  // Repeatedly re-check ONLY pending FamPay / BharatPe auto-verify deposits every 15s (NEVER UPI Manual or USDT)
   useEffect(() => {
-    if (!userState?.imapAutoVerifyEnabled || pendingAutoDeposits.length === 0) return;
+    if (pendingAutoDeposits.length === 0) return;
     let active = true;
     const runCheck = async () => {
       for (const dep of pendingAutoDeposits) {
@@ -622,14 +710,15 @@ export const WalletView: React.FC = () => {
       active = false;
       window.clearInterval(timer);
     };
-  }, [userState?.imapAutoVerifyEnabled, pendingAutoDeposits, verifyDepositViaImap]);
+  }, [pendingAutoDeposits, verifyDepositViaImap]);
 
   const items = useMemo(() => {
     const rows: {
       id: string;
       depositId?: number;
       isRedeem?: boolean;
-      isUsdt?: boolean;
+      canAutoVerify?: boolean;
+      invoiceId?: string;
       hasScreenshot?: boolean;
       kind: 'recharge' | 'purchase' | 'redeem';
       label: string;
@@ -643,7 +732,8 @@ export const WalletView: React.FC = () => {
         id: `dep-${d.id}`,
         depositId: d.id,
         isRedeem: d.isRedeem,
-        isUsdt: d.method.toLowerCase().includes('usdt'),
+        canAutoVerify: !d.isRedeem && isMethodAutoVerifiable(d.method),
+        invoiceId: d.invoiceId,
         hasScreenshot: Boolean(d.screenshot),
         kind: d.isRedeem ? 'redeem' : 'recharge',
         label: d.method,
@@ -666,7 +756,13 @@ export const WalletView: React.FC = () => {
 
     rows.sort((a, b) => b.date.localeCompare(a.date));
     return filter === 'all' ? rows : rows.filter((r) => r.kind === filter);
-  }, [userState?.deposits, userState?.orders, filter]);
+  }, [
+    userState?.deposits,
+    userState?.orders,
+    userState?.imapAutoVerifyEnabled,
+    userState?.bharatpeAutoVerifyEnabled,
+    filter,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -731,21 +827,19 @@ export const WalletView: React.FC = () => {
                   <div className="font-semibold text-sm text-slate-900 truncate">{item.label}</div>
                   <div className="text-xs text-slate-500 mt-0.5 font-mono">
                     {item.date} · {item.status}
+                    {item.invoiceId ? ` · Note: ${item.invoiceId}` : ''}
                     {item.hasScreenshot ? ' · Proof attached' : ''}
-                    {userState?.imapAutoVerifyEnabled &&
-                    item.kind === 'recharge' &&
-                    !item.isRedeem &&
-                    !item.isUsdt &&
-                    item.status === 'pending'
-                      ? ' · Auto-checking…'
+                    {item.kind === 'recharge' && !item.isRedeem && item.status === 'pending'
+                      ? item.canAutoVerify
+                        ? ' · Auto-checking…'
+                        : ' · Under admin review'
                       : ''}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  {userState?.imapAutoVerifyEnabled &&
+                  {item.canAutoVerify &&
                     item.kind === 'recharge' &&
                     !item.isRedeem &&
-                    !item.isUsdt &&
                     item.status === 'pending' &&
                     item.depositId && (
                       <button

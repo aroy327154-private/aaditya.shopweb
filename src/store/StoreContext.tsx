@@ -142,6 +142,7 @@ interface StoreContextValue {
     amount: number,
     utr: string,
     screenshot?: string,
+    invoiceId?: string,
   ) => Promise<boolean>;
   verifyDepositViaImap: (depositId: number, silent?: boolean) => Promise<boolean>;
   redeemGiftCode: (code: string) => Promise<boolean>;
@@ -184,7 +185,12 @@ interface StoreContextValue {
   addRedeemCode: (code: string, amount: number, max: number) => Promise<boolean>;
   toggleRedeemCode: (code: string) => Promise<void>;
   removeRedeemCode: (code: string) => Promise<void>;
-  savePaymentSettings: (patch: Partial<PaymentSettings>, label: string) => Promise<void>;
+  savePaymentSettings: (
+    patch: Partial<PaymentSettings> & { bharatpeToken?: string; clearBharatpeToken?: boolean },
+    label: string,
+  ) => Promise<void>;
+  testBharatpeSettings: (draft?: { merchantId?: string; token?: string }) => Promise<void>;
+  syncBharatpeDeposits: () => Promise<void>;
   saveImapSettings: (patch: {
     enabled?: boolean;
     host?: string;
@@ -193,6 +199,7 @@ interface StoreContextValue {
     appPassword?: string;
     senderFilter?: string;
     autoApproveOnSubmit?: boolean;
+    requireInvoiceMatch?: boolean;
     pollIntervalSec?: number;
   }) => Promise<void>;
   testImapSettings: (draft?: { host?: string; port?: number; email?: string; appPassword?: string }) => Promise<void>;
@@ -1179,9 +1186,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       amount: number,
       utr: string,
       screenshot?: string,
+      invoiceId?: string,
     ): Promise<boolean> => {
       if (!userToken) return false;
-      const res = await apiRequest<{ autoVerified?: boolean; state: PublicStoreState }>(
+      const res = await apiRequest<{
+        autoVerified?: boolean;
+        autoCheckActive?: boolean;
+        isManualMethod?: boolean;
+        state: PublicStoreState;
+      }>(
         '/api/deposits',
         {
           method: 'POST',
@@ -1190,6 +1203,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             amount,
             utr,
             ...(screenshot ? { screenshot } : {}),
+            ...(invoiceId ? { invoiceId } : {}),
           }),
         },
         userToken,
@@ -1202,7 +1216,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast(
         res.data.autoVerified
           ? `₹${amount} verified & credited instantly!`
-          : `₹${amount} deposit submitted — automatic verification is running`,
+          : res.data.autoCheckActive
+            ? `₹${amount} deposit submitted — automatic verification is running`
+            : `₹${amount} deposit submitted — sent to admin for manual verification`,
       );
       return true;
     },
@@ -1613,11 +1629,46 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const savePaymentSettings = useCallback(
-    async (patch: Partial<PaymentSettings>, label: string) => {
+    async (
+      patch: Partial<PaymentSettings> & { bharatpeToken?: string; clearBharatpeToken?: boolean },
+      label: string,
+    ) => {
       await adminMutate('/api/admin/payments', 'PUT', patch, `${label} settings saved`);
     },
     [adminMutate],
   );
+
+  const testBharatpeSettings = useCallback(
+    async (draft?: { merchantId?: string; token?: string }) => {
+      if (!adminToken) return;
+      const res = await apiRequest<{ ok: boolean; detail: string }>(
+        '/api/admin/bharatpe/test',
+        { method: 'POST', body: JSON.stringify(draft || {}) },
+        adminToken,
+      );
+      if (!res.ok) {
+        showToast(res.data.error || 'BharatPe test failed', 'err');
+        return;
+      }
+      showToast(res.data.detail);
+    },
+    [adminToken, showToast],
+  );
+
+  const syncBharatpeDeposits = useCallback(async () => {
+    if (!adminToken) return;
+    const res = await apiRequest<{ checked: number; approved: number; data: AdminStoreData }>(
+      '/api/admin/bharatpe/sync',
+      { method: 'POST' },
+      adminToken,
+    );
+    if (!res.ok) {
+      showToast(res.data.error || 'BharatPe sync failed', 'err');
+      return;
+    }
+    setAdminData(res.data.data);
+    showToast(`BharatPe checked ${res.data.checked} pending deposit(s) · ${res.data.approved} auto-approved`);
+  }, [adminToken, showToast]);
 
   const saveImapSettings = useCallback(
     async (patch: {
@@ -1628,9 +1679,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       appPassword?: string;
       senderFilter?: string;
       autoApproveOnSubmit?: boolean;
+      requireInvoiceMatch?: boolean;
       pollIntervalSec?: number;
     }) => {
-      await adminMutate('/api/admin/imap', 'PUT', patch, 'Gmail IMAP verification settings saved');
+      await adminMutate('/api/admin/imap', 'PUT', patch, 'FamPay Gmail IMAP settings saved');
     },
     [adminMutate],
   );
@@ -2161,6 +2213,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     toggleRedeemCode,
     removeRedeemCode,
     savePaymentSettings,
+    testBharatpeSettings,
+    syncBharatpeDeposits,
     saveImapSettings,
     testImapSettings,
     syncImapDeposits,

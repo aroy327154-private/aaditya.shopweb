@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import type { ServerImapSettings } from './store.ts';
+import { normalizeUtr, type ServerImapSettings } from './store.ts';
 
 export interface ParsedPaymentEmail {
   uid: number;
@@ -115,14 +115,71 @@ export async function fetchRecentPaymentEmails(
   return emails.sort((a, b) => b.uid - a.uid);
 }
 
+/**
+ * Extracts all bank UTRs (12-digit numeric) and FamPay/UPI Payment IDs from an email
+ * so every identifier linked to a verified FamPay receipt is permanently marked used
+ * (preventing the same email from ever being verified twice using a different ID).
+ */
+export function extractPaymentIdentifiers(bodyText: string): string[] {
+  const found = new Set<string>();
+  const text = String(bodyText || '');
+
+  // 12-digit standard UPI UTR / RRN
+  const twelveDigitRegex = /(?:^|[^0-9])([0-9]{12})(?:[^0-9]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = twelveDigitRegex.exec(text)) !== null) {
+    const norm = normalizeUtr(m[1]);
+    if (norm.length === 12) found.add(norm);
+  }
+
+  // Labeled UTR / RRN / Payment ID / Transaction ID / Reference ID fields in FamPay receipts
+  const labeledRegex =
+    /(?:utr|rrn|payment\s*id|transaction\s*id|txn\s*id|ref(?:erence)?\s*(?:id|no\.?|number)?|order\s*id)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-_]{5,34})/gi;
+  while ((m = labeledRegex.exec(text)) !== null) {
+    const norm = normalizeUtr(m[1]);
+    if (norm.length >= 6 && /\d/.test(norm)) {
+      found.add(norm);
+    }
+  }
+
+  // Common FamPay / UPI prefixed transaction tokens (FMP..., FP..., FAM..., UPI..., T24..., P2M...)
+  const prefixedRegex = /(?:^|[^A-Za-z0-9])((?:FMP|FAM|FP|UPI|P2M|TXN|T2\d)[A-Z0-9\-_]{5,30})(?:[^A-Za-z0-9]|$)/gi;
+  while ((m = prefixedRegex.exec(text)) !== null) {
+    const norm = normalizeUtr(m[1]);
+    if (norm.length >= 8 && /\d/.test(norm)) {
+      found.add(norm);
+    }
+  }
+
+  return Array.from(found);
+}
+
+function matchStandaloneToken(bodyText: string, rawToken: string): boolean {
+  const clean = rawToken.trim();
+  const canonical = normalizeUtr(clean);
+  if (canonical.length < 6) return false;
+
+  const exactRegex = new RegExp(`(^|[^a-z0-9])${escapeRegExp(clean)}([^a-z0-9]|$)`, 'i');
+  if (exactRegex.test(bodyText)) return true;
+
+  // Allow formatted tokens with spaces, dashes, or underscores (e.g. "FMP-1234 5678") without substring spoofing
+  const flexiblePattern = canonical
+    .split('')
+    .map((ch) => escapeRegExp(ch))
+    .join('[\\s\\-_]?');
+  const flexibleRegex = new RegExp(`(^|[^a-z0-9])${flexiblePattern}([^a-z0-9]|$)`, 'i');
+  return flexibleRegex.test(bodyText);
+}
+
 export function doesEmailMatchPayment(
   email: ParsedPaymentEmail,
   targetUtr: string,
   targetAmount: number,
   senderFilter: string,
+  targetInvoiceId?: string,
+  requireInvoiceMatch = false,
 ): boolean {
-  const cleanUtr = targetUtr.trim();
-  const canonicalUtr = cleanUtr.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const canonicalUtr = normalizeUtr(targetUtr);
   if (canonicalUtr.length < 6 || targetAmount <= 0) return false;
 
   const filterKeywords = senderFilter
@@ -136,20 +193,25 @@ export function doesEmailMatchPayment(
     if (!matchedFilter) return false;
   }
 
-  // Exact standalone UTR / Reference ID match (also allows spaces or dashes inside formatted UTRs while preventing substring spoofing)
-  const utrRegex = new RegExp(`(^|[^a-z0-9])${escapeRegExp(cleanUtr)}([^a-z0-9]|$)`, 'i');
-  let utrMatched = utrRegex.test(email.bodyText);
-  if (!utrMatched) {
-    // Allow formatted tokens like "1234 5678 9012" or "1234-5678-9012" matching "123456789012"
-    const spacedPattern = canonicalUtr
-      .split('')
-      .map((ch) => escapeRegExp(ch))
-      .join('[\\s\\-]?');
-    const spacedRegex = new RegExp(`(^|[^a-z0-9])${spacedPattern}([^a-z0-9]|$)`, 'i');
-    utrMatched = spacedRegex.test(email.bodyText);
-  }
-  if (!utrMatched) {
+  // Exact standalone UTR / FamPay Payment ID match
+  if (!matchStandaloneToken(email.bodyText, targetUtr)) {
     return false;
+  }
+
+  // Invoice ID / Payment Note verification for FamPay
+  const cleanInv = normalizeUtr(targetInvoiceId || '');
+  if (cleanInv.length >= 6) {
+    const hasExpectedInvoice = matchStandaloneToken(email.bodyText, cleanInv);
+    if (!hasExpectedInvoice) {
+      if (requireInvoiceMatch) {
+        return false;
+      }
+      // Even when soft-mode is enabled, reject if the email explicitly carries a DIFFERENT ATG invoice ID
+      const otherInvoiceMatch = email.bodyText.match(/(?:^|[^A-Z0-9])(ATG[A-Z0-9]{5,14})(?:[^A-Z0-9]|$)/i);
+      if (otherInvoiceMatch && normalizeUtr(otherInvoiceMatch[1]) !== cleanInv) {
+        return false;
+      }
+    }
   }
 
   // Exact INR / payment amount match near currency symbol or payment keywords
@@ -176,12 +238,32 @@ export async function verifySingleDepositViaImap(
   utr: string,
   amount: number,
   excludeUids?: Set<number>,
-): Promise<{ matched: boolean; matchedSubject?: string; matchedUid?: number }> {
+  invoiceId?: string,
+): Promise<{
+  matched: boolean;
+  matchedSubject?: string;
+  matchedUid?: number;
+  extractedIds?: string[];
+}> {
   const emails = await fetchRecentPaymentEmails(cfg, 55);
   const found = emails.find(
     (e) =>
       (!excludeUids || !excludeUids.has(e.uid)) &&
-      doesEmailMatchPayment(e, utr, amount, cfg.senderFilter || ''),
+      doesEmailMatchPayment(
+        e,
+        utr,
+        amount,
+        cfg.senderFilter || '',
+        invoiceId,
+        Boolean(cfg.requireInvoiceMatch),
+      ),
   );
-  return found ? { matched: true, matchedSubject: found.subject, matchedUid: found.uid } : { matched: false };
+  return found
+    ? {
+        matched: true,
+        matchedSubject: found.subject,
+        matchedUid: found.uid,
+        extractedIds: extractPaymentIdentifiers(found.bodyText),
+      }
+    : { matched: false };
 }

@@ -933,6 +933,7 @@ export const AdminDepositsView: React.FC = () => {
         String(d.id).includes(q) ||
         String(d.userId).includes(q) ||
         (d.utr || '').toLowerCase().includes(q) ||
+        (d.invoiceId || '').toLowerCase().includes(q) ||
         (d.method || '').toLowerCase().includes(q)
       );
     });
@@ -1008,7 +1009,12 @@ export const AdminDepositsView: React.FC = () => {
                     {formatMoneyCompact(d.amount)}
                   </td>
                   <td className="py-3 px-4 text-slate-700">{d.method}</td>
-                  <td className="py-3 px-4 font-mono text-xs text-slate-600">{d.utr || '—'}</td>
+                  <td className="py-3 px-4 font-mono text-xs text-slate-600">
+                    <div>{d.utr || '—'}</div>
+                    {d.invoiceId && (
+                      <div className="text-[11px] text-emerald-700 mt-0.5">Note: {d.invoiceId}</div>
+                    )}
+                  </td>
                   <td className="py-3 px-4">
                     {d.screenshot ? (
                       <button
@@ -1029,7 +1035,7 @@ export const AdminDepositsView: React.FC = () => {
                     )}
                   </td>
                   <td className="py-3 px-4">
-                    <span
+                    <div
                       className={`text-xs font-semibold capitalize ${
                         d.status === 'success'
                           ? 'text-emerald-700'
@@ -1039,7 +1045,16 @@ export const AdminDepositsView: React.FC = () => {
                       }`}
                     >
                       {d.status}
-                    </span>
+                    </div>
+                    {d.status === 'success' && d.verifiedBy && (
+                      <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                        {d.verifiedBy === 'bharatpe'
+                          ? 'BharatPe Auto'
+                          : d.verifiedBy === 'imap'
+                            ? 'FamPay Auto'
+                            : 'Admin'}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-4 font-mono text-xs text-slate-400 whitespace-nowrap">{d.date}</td>
                   <td className="py-3 px-4 text-right">
@@ -1095,6 +1110,7 @@ export const AdminDepositsView: React.FC = () => {
                   <div className="text-xs text-slate-500 font-mono truncate">
                     User {previewDep.userId} · {formatMoneyCompact(previewDep.amount)} · {previewDep.method} · UTR:{' '}
                     {previewDep.utr || '—'}
+                    {previewDep.invoiceId ? ` · Note: ${previewDep.invoiceId}` : ''}
                   </div>
                 </div>
                 <button
